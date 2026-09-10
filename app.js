@@ -2,7 +2,7 @@
 // CONFIGURAÇÃO — troque pela URL do seu Google Apps Script
 // (veja o passo a passo no README.md)
 // ============================================================
-const SCRIPT_URL = "COLE_AQUI_A_URL_DO_SEU_APP_SCRIPT";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw6tvdUdsNQI5VZpdxQ43bMYf5bcCAa3rApESvEx4asN-f4IPKBoOlPTulXLUfG4EL0iQ/exec";
 
 // ============================================================
 // Dados fixos: quem lança e categorias por bloco
