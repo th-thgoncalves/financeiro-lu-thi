@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Financeiro - Lu & Thi</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#2C4E4A" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Finanças L&T" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="app" id="app">
+
+    <header class="app-header">
+      <button class="back-btn" id="backBtn" aria-label="Voltar" hidden>←</button>
+      <div class="app-title">
+        <span class="eyebrow">Financeiro</span>
+        <span class="names">Lu <span class="amp">&amp;</span> Thi</span>
+      </div>
+      <div class="header-spacer"></div>
+    </header>
+
+    <div class="progress" id="progress" aria-hidden="true">
+      <span class="dot" data-step="1"></span>
+      <span class="dot" data-step="2"></span>
+      <span class="dot" data-step="3"></span>
+      <span class="dot" data-step="4"></span>
+      <span class="dot" data-step="5"></span>
+    </div>
+
+    <main class="screen-wrap" id="screenWrap">
+      <!-- as telas são injetadas aqui pelo app.js -->
+    </main>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
