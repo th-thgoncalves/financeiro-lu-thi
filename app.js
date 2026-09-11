@@ -5,7 +5,7 @@
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw6tvdUdsNQI5VZpdxQ43bMYf5bcCAa3rApESvEx4asN-f4IPKBoOlPTulXLUfG4EL0iQ/exec";
 
 // ============================================================
-// Dados fixos: quem lança e categorias por bloco
+// Dados fixos: quem lança e blocos
 // ============================================================
 const QUEM_OPCOES = ["Lu", "Thi"];
 
@@ -16,7 +16,9 @@ const BLOCOS = [
   { id: "Receita", label: "Receita", classe: "tile-receita", hint: "Dinheiro que entra" },
 ];
 
-const CATEGORIAS = {
+// Usadas só como último recurso, se a planilha ainda não tiver a
+// aba "Categorias" configurada, ou se o app estiver sem internet.
+const CATEGORIAS_PADRAO = {
   "Despesa Fixa": [
     "Luz", "Água", "Internet", "Celular Thi", "Celular Lu",
     "Pensão", "Transporte Ni", "Ração", "Areia",
@@ -25,17 +27,71 @@ const CATEGORIAS = {
     "Facul", "Conce", "Shoppe", "Cíntia", "Marcio", "Roça",
     "Marco Celular", "Rita Sec", "Nilton (bateria)", "Óculos",
     "Facio", "Jorge (projeto jiu-jitsu)", "Fal", "Regina (mãe)",
-    "Outro",
   ],
   "Cartão": ["Cartão", "Taylane", "Fusca"],
   "Receita": ["Luciana", "Thiago", "Sabe", "Sabe Thi", "Dedeu", "Hilmara"],
 };
 
+const MESES_PT = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+function mesAtualLabel() {
+  const hoje = new Date();
+  return `${MESES_PT[hoje.getMonth()]} de ${hoje.getFullYear()}`;
+}
+
+function gerarOpcoesDeMes() {
+  const opcoes = [];
+  const hoje = new Date();
+  for (let offset = -6; offset <= 6; offset++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + offset, 1);
+    opcoes.push(`${MESES_PT[d.getMonth()]} de ${d.getFullYear()}`);
+  }
+  return opcoes;
+}
+
+function formatarMoeda(v) {
+  return Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+}
+
+// ============================================================
+// Categorias vindas da planilha (aba "Categorias"), com fallback
+// ============================================================
+let CATEGORIAS_REMOTAS = null;
+let categoriasPromise = null;
+
+function carregarCategorias() {
+  if (categoriasPromise) return categoriasPromise;
+  categoriasPromise = (async () => {
+    try {
+      if (SCRIPT_URL.includes("COLE_AQUI")) return null;
+      const res = await fetch(`${SCRIPT_URL}?categorias=1`);
+      const json = await res.json();
+      if (json.status === "ok" && json.categorias) {
+        CATEGORIAS_REMOTAS = json.categorias;
+      }
+    } catch (err) {
+      // sem internet ou script fora do ar — segue com o padrão
+    }
+    return CATEGORIAS_REMOTAS;
+  })();
+  return categoriasPromise;
+}
+
+function categoriasDoBloco(bloco) {
+  const base = (CATEGORIAS_REMOTAS && CATEGORIAS_REMOTAS[bloco]) || CATEGORIAS_PADRAO[bloco] || [];
+  const lista = base.slice();
+  if (!lista.includes("Outro")) lista.push("Outro");
+  return lista;
+}
+
 // ============================================================
 // Estado do formulário
 // ============================================================
 const state = {
-  screen: "home", // "home" | "wizard" | "resumo"
+  screen: "home", // "home" | "wizard" | "resumo" | "recentes"
   step: 1,
   quem: null,
   bloco: null,
@@ -63,7 +119,7 @@ backBtn.addEventListener("click", () => {
     } else {
       goToStep(state.step - 1);
     }
-  } else if (state.screen === "resumo") {
+  } else if (state.screen === "resumo" || state.screen === "recentes") {
     goHome();
   }
 });
@@ -96,6 +152,11 @@ function goResumo() {
   render();
 }
 
+function goRecentes() {
+  state.screen = "recentes";
+  render();
+}
+
 function updateProgress() {
   const isWizardSteps = state.screen === "wizard" && state.step >= 1 && state.step <= TOTAL_STEPS;
   progressEl.style.display = isWizardSteps ? "flex" : "none";
@@ -124,6 +185,11 @@ function render() {
 
   if (state.screen === "resumo") {
     renderResumo();
+    return;
+  }
+
+  if (state.screen === "recentes") {
+    renderRecentes();
     return;
   }
 
@@ -169,6 +235,12 @@ function renderHome() {
   btnResumo.innerHTML = `📊 Ver resumo do mês<span class="tile-hint">Consultar totais por categoria</span>`;
   btnResumo.addEventListener("click", () => goResumo());
   grid.appendChild(btnResumo);
+
+  const btnRecentes = document.createElement("button");
+  btnRecentes.className = "tile tile-receita";
+  btnRecentes.innerHTML = `🕘 Últimos lançamentos<span class="tile-hint">Ver e corrigir os mais recentes</span>`;
+  btnRecentes.addEventListener("click", () => goRecentes());
+  grid.appendChild(btnRecentes);
 }
 
 // ---------- Passo 1: Quem ----------
@@ -217,6 +289,19 @@ function renderBloco() {
 
 // ---------- Passo 3: Categoria ----------
 function renderCategoria() {
+  if (!CATEGORIAS_REMOTAS && !SCRIPT_URL.includes("COLE_AQUI")) {
+    const el = screenEl(`
+      <div class="resumo-loading">
+        <span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span>
+        &nbsp; Carregando categorias...
+      </div>
+    `);
+    carregarCategorias().then(() => {
+      if (state.screen === "wizard" && state.step === 3) render();
+    });
+    return;
+  }
+
   const el = screenEl(`
     <h2 class="screen-title">Qual categoria?</h2>
     <p class="screen-sub">Bloco: <strong>${state.bloco}</strong></p>
@@ -240,7 +325,7 @@ function renderCategoria() {
     nextBtn.disabled = !ready;
   }
 
-  (CATEGORIAS[state.bloco] || []).forEach((cat) => {
+  categoriasDoBloco(state.bloco).forEach((cat) => {
     const btn = document.createElement("button");
     btn.className = "cat-item";
     btn.textContent = cat;
@@ -366,6 +451,7 @@ function renderObservacao() {
       <span class="chip"><strong>R$ ${valorFormatado}</strong></span>
       <span class="chip">${statusLabel}</span>
     </div>
+    <div id="duplicadoSlot"></div>
     <p class="field-label">Observação (opcional)</p>
     <textarea class="text-input" id="obsInput" rows="3" placeholder="Alguma anotação sobre esse lançamento..."></textarea>
     <div id="errorSlot" style="margin-top:16px;"></div>
@@ -380,6 +466,30 @@ function renderObservacao() {
   const errorSlot = el.querySelector("#errorSlot");
 
   salvarBtn.addEventListener("click", () => salvar(salvarBtn, errorSlot));
+
+  verificarPossivelDuplicado(el.querySelector("#duplicadoSlot"), categoriaLabel);
+}
+
+// Avisa (sem bloquear) se já existe um lançamento parecido hoje.
+async function verificarPossivelDuplicado(container, categoriaLabel) {
+  try {
+    if (SCRIPT_URL.includes("COLE_AQUI")) return;
+    const itens = await fetchRecentes(15);
+    const hojeISO = new Date().toISOString().split("T")[0];
+    const parecido = itens.find(
+      (it) => it.dataISO === hojeISO && it.bloco === state.bloco && it.categoria === categoriaLabel
+    );
+    if (parecido) {
+      container.innerHTML = `
+        <div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
+          ⚠️ ${parecido.quem} já lançou <strong>${parecido.categoria}</strong> hoje às ${parecido.hora}
+          (R$ ${formatarMoeda(parecido.valor)}). Se for o mesmo gasto, não precisa lançar de novo.
+        </div>
+      `;
+    }
+  } catch (err) {
+    // consulta silenciosa — se falhar, simplesmente não mostra o aviso
+  }
 }
 
 // ---------- Envio para a planilha ----------
@@ -448,31 +558,11 @@ function renderSucesso() {
 // ============================================================
 // Resumo do mês
 // ============================================================
-const MESES_PT = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-];
-
-function mesAtualLabel() {
-  const hoje = new Date();
-  return `${MESES_PT[hoje.getMonth()]} de ${hoje.getFullYear()}`;
-}
-
-function gerarOpcoesDeMes() {
-  const opcoes = [];
-  const hoje = new Date();
-  for (let offset = -6; offset <= 6; offset++) {
-    const d = new Date(hoje.getFullYear(), hoje.getMonth() + offset, 1);
-    opcoes.push(`${MESES_PT[d.getMonth()]} de ${d.getFullYear()}`);
-  }
-  return opcoes;
-}
-
 function renderResumo() {
   const el = screenEl(`
     <h2 class="screen-title">Resumo do mês</h2>
     <p class="field-label">Mês</p>
-    <select class="text-input" id="mesSelect" style="margin-bottom:18px;"></select>
+    <select class="mes-select" id="mesSelect" style="margin-bottom:18px;"></select>
     <div id="resumoResultado"></div>
   `);
 
@@ -495,9 +585,9 @@ function renderResumo() {
 
 async function carregarResumo(container, mesLabel) {
   container.innerHTML = `
-    <div style="display:flex; align-items:center; gap:8px; color:var(--ink-soft); font-size:14px; padding: 10px 0;">
+    <div class="resumo-loading">
       <span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span>
-      Carregando...
+      &nbsp; Carregando...
     </div>
   `;
 
@@ -518,10 +608,6 @@ async function carregarResumo(container, mesLabel) {
   } catch (err) {
     container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
   }
-}
-
-function formatarMoeda(v) {
-  return Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
 }
 
 function renderResumoResultado(container, dados) {
@@ -580,9 +666,101 @@ function renderResumoResultado(container, dados) {
 }
 
 // ============================================================
+// Últimos lançamentos (ver / excluir)
+// ============================================================
+async function fetchRecentes(limite) {
+  const url = `${SCRIPT_URL}?recentes=1&limite=${limite || 10}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  if (json.status !== "ok") throw new Error(json.message || "Não foi possível consultar os lançamentos.");
+  return json.itens || [];
+}
+
+function renderRecentes() {
+  const el = screenEl(`
+    <h2 class="screen-title">Últimos lançamentos</h2>
+    <p class="screen-sub">Toque em excluir se algum tiver sido lançado por engano.</p>
+    <div id="recentesLista"></div>
+  `);
+
+  carregarRecentes(el.querySelector("#recentesLista"));
+}
+
+async function carregarRecentes(container) {
+  container.innerHTML = `
+    <div class="resumo-loading">
+      <span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span>
+      &nbsp; Carregando...
+    </div>
+  `;
+
+  try {
+    if (SCRIPT_URL.includes("COLE_AQUI")) {
+      throw new Error("O app ainda não foi conectado à planilha.");
+    }
+    const itens = await fetchRecentes(10);
+
+    if (itens.length === 0) {
+      container.innerHTML = `<p class="resumo-vazio">Nenhum lançamento ainda.</p>`;
+      return;
+    }
+
+    container.innerHTML = "";
+    const list = document.createElement("div");
+    list.className = "cat-list";
+
+    itens.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "cat-item";
+      row.style.display = "flex";
+      row.style.justifyContent = "space-between";
+      row.style.alignItems = "center";
+      row.style.gap = "10px";
+
+      const statusTxt = item.pago ? "" : ` · <span style="color:var(--brick);">pendente</span>`;
+      row.innerHTML = `
+        <span style="flex:1;">
+          <strong>${item.categoria}</strong> — R$ ${formatarMoeda(item.valor)}<br>
+          <span style="font-size:12px; color:var(--ink-soft);">${item.quem} · ${item.bloco} · ${item.data} ${item.hora}${statusTxt}</span>
+        </span>
+        <button class="btn-text" style="color: var(--brick); padding: 6px 10px;">Excluir</button>
+      `;
+
+      row.querySelector("button").addEventListener("click", () => excluirItem(item, container));
+      list.appendChild(row);
+    });
+
+    container.appendChild(list);
+  } catch (err) {
+    container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
+  }
+}
+
+async function excluirItem(item, container) {
+  const confirmar = window.confirm(
+    `Excluir o lançamento de R$ ${formatarMoeda(item.valor)} em "${item.categoria}" (${item.data})?`
+  );
+  if (!confirmar) return;
+
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "excluir", id: item.id }),
+    });
+    const json = await res.json();
+    if (json.status !== "ok") throw new Error(json.message || "Não foi possível excluir.");
+    carregarRecentes(container);
+  } catch (err) {
+    alert(`Não deu pra excluir: ${err.message}`);
+  }
+}
+
+// ============================================================
 // Inicialização
 // ============================================================
 render();
+carregarCategorias();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
