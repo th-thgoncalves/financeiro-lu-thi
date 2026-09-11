@@ -1,7 +1,7 @@
 # Financeiro - Lu & Thi
 
 App simples para lançar gastos e receitas rapidinho pelo celular, que
-alimenta uma aba nova ("Lançamentos") na planilha financeira de vocês —
+alimenta uma aba nova ("Lançamentos") na planilha financeira —
 sem mexer nas abas mensais que já existem.
 
 ## O que tem aqui
