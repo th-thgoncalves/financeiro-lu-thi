@@ -85,6 +85,20 @@ button {
 
 .header-spacer { width: 40px; }
 
+.resumo-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resumo-btn:active { transform: scale(0.95); }
+
 .app-title {
   display: flex;
   flex-direction: column;
@@ -419,4 +433,97 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   .screen, .tile, .cat-item { animation: none !important; transition: none !important; }
+}
+
+/* ---------- Resumo screen ---------- */
+.mes-select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-body);
+  margin-bottom: 18px;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%), linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
+  background-position: calc(100% - 20px) center, calc(100% - 15px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.resumo-totais {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.resumo-total-card {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 12px 10px;
+  text-align: center;
+}
+
+.resumo-total-card .label {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+.resumo-total-card .valor {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.resumo-total-card.saldo-positivo .valor { color: var(--teal-dark); }
+.resumo-total-card.saldo-negativo .valor { color: var(--brick); }
+
+.resumo-bloco {
+  margin-bottom: 18px;
+}
+
+.resumo-bloco-titulo {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.resumo-linha {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 2px;
+  font-size: 14px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.resumo-linha:last-child { border-bottom: none; }
+
+.resumo-linha .categoria { color: var(--ink); }
+.resumo-linha .valor { font-weight: 600; color: var(--ink); }
+
+.resumo-vazio {
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  padding: 40px 0;
+}
+
+.resumo-loading {
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  padding: 40px 0;
 }
