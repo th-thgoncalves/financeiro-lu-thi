@@ -57,6 +57,8 @@ button {
   flex-direction: column;
   position: relative;
   box-shadow: var(--shadow-card);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .app-header {
