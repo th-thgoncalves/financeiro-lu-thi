@@ -35,6 +35,7 @@ const CATEGORIAS = {
 // Estado do formulário
 // ============================================================
 const state = {
+  screen: "home", // "home" | "wizard" | "resumo"
   step: 1,
   quem: null,
   bloco: null,
@@ -42,6 +43,7 @@ const state = {
   categoriaOutro: "",
   valor: "",
   observacao: "",
+  resumoMes: null,
 };
 
 const TOTAL_STEPS = 5;
@@ -49,8 +51,21 @@ const TOTAL_STEPS = 5;
 const screenWrap = document.getElementById("screenWrap");
 const backBtn = document.getElementById("backBtn");
 const progressEl = document.getElementById("progress");
+const resumoBtn = document.getElementById("resumoBtn");
 
-backBtn.addEventListener("click", () => goToStep(state.step - 1));
+resumoBtn.addEventListener("click", () => goResumo());
+
+backBtn.addEventListener("click", () => {
+  if (state.screen === "wizard") {
+    if (state.step <= 1) {
+      goHome();
+    } else {
+      goToStep(state.step - 1);
+    }
+  } else if (state.screen === "resumo") {
+    goHome();
+  }
+});
 
 function resetState() {
   state.step = 1;
@@ -62,20 +77,35 @@ function resetState() {
   state.observacao = "";
 }
 
+function goHome() {
+  state.screen = "home";
+  render();
+}
+
 function goToStep(step) {
+  state.screen = "wizard";
   state.step = step;
   render();
 }
 
+function goResumo() {
+  state.screen = "resumo";
+  if (!state.resumoMes) state.resumoMes = mesAtualLabel();
+  render();
+}
+
 function updateProgress() {
+  const isWizardSteps = state.screen === "wizard" && state.step >= 1 && state.step <= TOTAL_STEPS;
+  progressEl.style.display = isWizardSteps ? "flex" : "none";
+
   const dots = progressEl.querySelectorAll(".dot");
   dots.forEach((dot, i) => {
     const n = i + 1;
-    dot.classList.toggle("active", n === state.step);
-    dot.classList.toggle("done", n < state.step);
+    dot.classList.toggle("active", isWizardSteps && n === state.step);
+    dot.classList.toggle("done", isWizardSteps && n < state.step);
   });
-  backBtn.hidden = state.step === 1;
-  progressEl.style.display = state.step > TOTAL_STEPS ? "none" : "flex";
+
+  backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 6);
 }
 
 // ============================================================
@@ -84,6 +114,16 @@ function updateProgress() {
 function render() {
   updateProgress();
   screenWrap.innerHTML = "";
+
+  if (state.screen === "home") {
+    renderHome();
+    return;
+  }
+
+  if (state.screen === "resumo") {
+    renderResumo();
+    return;
+  }
 
   switch (state.step) {
     case 1: renderQuem(); break;
@@ -101,6 +141,31 @@ function screenEl(html) {
   div.innerHTML = html;
   screenWrap.appendChild(div);
   return div;
+}
+
+// ---------- Início: escolher o que fazer ----------
+function renderHome() {
+  const el = screenEl(`
+    <p class="screen-sub" style="margin-top:2px;">O que você quer fazer?</p>
+    <div class="tile-grid" id="homeGrid" style="grid-template-columns: 1fr; gap: 14px; margin-top: 6px;"></div>
+  `);
+
+  const grid = el.querySelector("#homeGrid");
+
+  const btnLancar = document.createElement("button");
+  btnLancar.className = "tile tile-fixa";
+  btnLancar.innerHTML = `+ Novo lançamento<span class="tile-hint">Registrar um gasto ou recebimento</span>`;
+  btnLancar.addEventListener("click", () => {
+    resetState();
+    goToStep(1);
+  });
+  grid.appendChild(btnLancar);
+
+  const btnResumo = document.createElement("button");
+  btnResumo.className = "tile tile-variavel";
+  btnResumo.innerHTML = `📊 Ver resumo do mês<span class="tile-hint">Consultar totais por categoria</span>`;
+  btnResumo.addEventListener("click", () => goResumo());
+  grid.appendChild(btnResumo);
 }
 
 // ---------- Passo 1: Quem ----------
@@ -327,12 +392,135 @@ function renderSucesso() {
       <h2 class="success-title">Lançamento salvo!</h2>
       <p class="success-detail">Já foi direto pra planilha. Pode fechar o app ou lançar outra coisa.</p>
       <button class="btn-primary" id="novoBtn" style="margin-top:20px; width:100%;">Novo lançamento</button>
+      <button class="btn-text" id="inicioBtn">Voltar ao início</button>
     </div>
   `);
   el.querySelector("#novoBtn").addEventListener("click", () => {
     resetState();
     render();
   });
+  el.querySelector("#inicioBtn").addEventListener("click", () => goHome());
+}
+
+// ============================================================
+// Resumo do mês
+// ============================================================
+const MESES_PT = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+function mesAtualLabel() {
+  const hoje = new Date();
+  return `${MESES_PT[hoje.getMonth()]} de ${hoje.getFullYear()}`;
+}
+
+function gerarOpcoesDeMes() {
+  const opcoes = [];
+  const hoje = new Date();
+  for (let offset = -6; offset <= 6; offset++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + offset, 1);
+    opcoes.push(`${MESES_PT[d.getMonth()]} de ${d.getFullYear()}`);
+  }
+  return opcoes;
+}
+
+function renderResumo() {
+  const el = screenEl(`
+    <h2 class="screen-title">Resumo do mês</h2>
+    <p class="field-label">Mês</p>
+    <select class="text-input" id="mesSelect" style="margin-bottom:18px;"></select>
+    <div id="resumoResultado"></div>
+  `);
+
+  const select = el.querySelector("#mesSelect");
+  gerarOpcoesDeMes().forEach((label) => {
+    const opt = document.createElement("option");
+    opt.value = label;
+    opt.textContent = label;
+    if (label === state.resumoMes) opt.selected = true;
+    select.appendChild(opt);
+  });
+
+  select.addEventListener("change", () => {
+    state.resumoMes = select.value;
+    carregarResumo(el.querySelector("#resumoResultado"), state.resumoMes);
+  });
+
+  carregarResumo(el.querySelector("#resumoResultado"), state.resumoMes);
+}
+
+async function carregarResumo(container, mesLabel) {
+  container.innerHTML = `
+    <div style="display:flex; align-items:center; gap:8px; color:var(--ink-soft); font-size:14px; padding: 10px 0;">
+      <span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span>
+      Carregando...
+    </div>
+  `;
+
+  try {
+    if (SCRIPT_URL.includes("COLE_AQUI")) {
+      throw new Error("O app ainda não foi conectado à planilha.");
+    }
+
+    const url = `${SCRIPT_URL}?mes=${encodeURIComponent(mesLabel)}`;
+    const res = await fetch(url);
+    const json = await res.json();
+
+    if (json.status !== "ok") {
+      throw new Error(json.message || "Não foi possível consultar o resumo.");
+    }
+
+    renderResumoResultado(container, json);
+  } catch (err) {
+    container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
+  }
+}
+
+function formatarMoeda(v) {
+  return Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+}
+
+function renderResumoResultado(container, dados) {
+  const saldoPositivo = dados.saldo >= 0;
+
+  let html = `
+    <div class="tile-grid cols-2" style="margin-bottom: 18px;">
+      <div class="tile tile-receita" style="padding: 16px;">
+        Entradas
+        <span class="tile-hint" style="font-size:16px; color: var(--ink); font-weight:700;">R$ ${formatarMoeda(dados.entradas)}</span>
+      </div>
+      <div class="tile tile-cartao" style="padding: 16px;">
+        Saídas
+        <span class="tile-hint" style="font-size:16px; color: var(--ink); font-weight:700;">R$ ${formatarMoeda(dados.saidas)}</span>
+      </div>
+    </div>
+    <div class="chip" style="display:inline-flex; margin-bottom: 18px; ${saldoPositivo ? "" : "border-color: var(--brick); background: var(--brick-tint);"}">
+      Saldo do mês: <strong style="margin-left:4px;">R$ ${formatarMoeda(dados.saldo)}</strong>
+    </div>
+  `;
+
+  if (!dados.linhas || dados.linhas.length === 0) {
+    html += `<p class="screen-sub">Nenhum lançamento registrado nesse mês ainda.</p>`;
+  } else {
+    let blocoAtual = null;
+    html += `<div class="cat-list">`;
+    dados.linhas.forEach((linha) => {
+      if (linha.bloco !== blocoAtual) {
+        blocoAtual = linha.bloco;
+        html += `<p class="field-label" style="margin-top:14px;">${blocoAtual}</p>`;
+      }
+      html += `
+        <div class="cat-item" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>${linha.categoria}</span>
+          <strong>R$ ${formatarMoeda(linha.valor)}</strong>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+
+  container.innerHTML = html;
 }
 
 // ============================================================
