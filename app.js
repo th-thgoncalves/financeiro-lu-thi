@@ -42,11 +42,12 @@ const state = {
   categoria: null,
   categoriaOutro: "",
   valor: "",
+  pago: null,
   observacao: "",
   resumoMes: null,
 };
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
 
 const screenWrap = document.getElementById("screenWrap");
 const backBtn = document.getElementById("backBtn");
@@ -74,6 +75,7 @@ function resetState() {
   state.categoria = null;
   state.categoriaOutro = "";
   state.valor = "";
+  state.pago = null;
   state.observacao = "";
 }
 
@@ -105,7 +107,7 @@ function updateProgress() {
     dot.classList.toggle("done", isWizardSteps && n < state.step);
   });
 
-  backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 6);
+  backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 7);
 }
 
 // ============================================================
@@ -130,8 +132,9 @@ function render() {
     case 2: renderBloco(); break;
     case 3: renderCategoria(); break;
     case 4: renderValor(); break;
-    case 5: renderObservacao(); break;
-    case 6: renderSucesso(); break;
+    case 5: renderStatus(); break;
+    case 6: renderObservacao(); break;
+    case 7: renderSucesso(); break;
   }
 }
 
@@ -309,12 +312,50 @@ function parseValor(v) {
   return isNaN(n) ? 0 : n;
 }
 
-// ---------- Passo 5: Observação + salvar ----------
+// ---------- Passo 5: Já foi pago/recebido? ----------
+function renderStatus() {
+  const isReceita = state.bloco === "Receita";
+  const pergunta = isReceita ? "Esse valor já entrou na conta?" : "Essa despesa já foi paga?";
+  const opcaoSim = isReceita ? "Sim, já recebido" : "Sim, já paguei";
+  const opcaoNao = isReceita ? "Ainda não" : "Ainda não paguei";
+
+  const el = screenEl(`
+    <h2 class="screen-title">${pergunta}</h2>
+    <p class="screen-sub">Isso ajuda a diferenciar o que já é dinheiro de fato do que ainda está previsto.</p>
+    <div class="tile-grid" id="statusGrid" style="gap:12px;"></div>
+  `);
+
+  const grid = el.querySelector("#statusGrid");
+
+  const btnSim = document.createElement("button");
+  btnSim.className = "tile tile-fixa";
+  btnSim.textContent = opcaoSim;
+  btnSim.addEventListener("click", () => {
+    state.pago = true;
+    goToStep(6);
+  });
+  grid.appendChild(btnSim);
+
+  const btnNao = document.createElement("button");
+  btnNao.className = "tile tile-cartao";
+  btnNao.textContent = opcaoNao;
+  btnNao.addEventListener("click", () => {
+    state.pago = false;
+    goToStep(6);
+  });
+  grid.appendChild(btnNao);
+}
+
+// ---------- Passo 6: Observação + salvar ----------
 function renderObservacao() {
   const categoriaLabel = state.categoria === "Outro" ? state.categoriaOutro : state.categoria;
   const valorFormatado = parseValor(state.valor).toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
   });
+  const isReceita = state.bloco === "Receita";
+  const statusLabel = state.pago
+    ? (isReceita ? "Recebido" : "Pago")
+    : (isReceita ? "A receber" : "Pendente");
 
   const el = screenEl(`
     <h2 class="screen-title">Confirmar lançamento</h2>
@@ -323,6 +364,7 @@ function renderObservacao() {
       <span class="chip">${state.bloco}</span>
       <span class="chip">${categoriaLabel}</span>
       <span class="chip"><strong>R$ ${valorFormatado}</strong></span>
+      <span class="chip">${statusLabel}</span>
     </div>
     <p class="field-label">Observação (opcional)</p>
     <textarea class="text-input" id="obsInput" rows="3" placeholder="Alguma anotação sobre esse lançamento..."></textarea>
@@ -355,6 +397,7 @@ async function salvar(button, errorSlot) {
     bloco: state.bloco,
     categoria: state.categoria === "Outro" ? state.categoriaOutro : state.categoria,
     valor: parseValor(state.valor),
+    pago: state.pago ? "Sim" : "Não",
     observacao: state.observacao,
   };
 
@@ -376,7 +419,7 @@ async function salvar(button, errorSlot) {
       throw new Error(json.message || "A planilha recusou o lançamento.");
     }
 
-    goToStep(6);
+    goToStep(7);
   } catch (err) {
     errorSlot.innerHTML = `<div class="error-banner">Não deu pra salvar: ${err.message}. Verifique sua internet e tente de novo.</div>`;
     button.disabled = false;
@@ -384,7 +427,7 @@ async function salvar(button, errorSlot) {
   }
 }
 
-// ---------- Passo 6: Sucesso ----------
+// ---------- Passo 7: Sucesso ----------
 function renderSucesso() {
   const el = screenEl(`
     <div class="success-wrap">
@@ -483,20 +526,29 @@ function formatarMoeda(v) {
 
 function renderResumoResultado(container, dados) {
   const saldoPositivo = dados.saldo >= 0;
+  const saldoRealPositivo = (dados.saldoReal !== undefined ? dados.saldoReal : dados.saldo) >= 0;
 
   let html = `
-    <div class="tile-grid cols-2" style="margin-bottom: 18px;">
+    <div class="tile-grid cols-2" style="margin-bottom: 10px;">
       <div class="tile tile-receita" style="padding: 16px;">
         Entradas
         <span class="tile-hint" style="font-size:16px; color: var(--ink); font-weight:700;">R$ ${formatarMoeda(dados.entradas)}</span>
+        ${dados.entradasPendente ? `<span class="tile-hint">R$ ${formatarMoeda(dados.entradasPendente)} a receber</span>` : ""}
       </div>
       <div class="tile tile-cartao" style="padding: 16px;">
         Saídas
         <span class="tile-hint" style="font-size:16px; color: var(--ink); font-weight:700;">R$ ${formatarMoeda(dados.saidas)}</span>
+        ${dados.saidasPendente ? `<span class="tile-hint">R$ ${formatarMoeda(dados.saidasPendente)} pendente</span>` : ""}
       </div>
     </div>
-    <div class="chip" style="display:inline-flex; margin-bottom: 18px; ${saldoPositivo ? "" : "border-color: var(--brick); background: var(--brick-tint);"}">
-      Saldo do mês: <strong style="margin-left:4px;">R$ ${formatarMoeda(dados.saldo)}</strong>
+    <div class="summary" style="margin-bottom: 18px;">
+      <span class="chip" style="${saldoPositivo ? "" : "border-color: var(--brick); background: var(--brick-tint);"}">
+        Saldo previsto: <strong style="margin-left:4px;">R$ ${formatarMoeda(dados.saldo)}</strong>
+      </span>
+      ${dados.saldoReal !== undefined ? `
+      <span class="chip" style="${saldoRealPositivo ? "" : "border-color: var(--brick); background: var(--brick-tint);"}">
+        Saldo real (já efetivado): <strong style="margin-left:4px;">R$ ${formatarMoeda(dados.saldoReal)}</strong>
+      </span>` : ""}
     </div>
   `;
 
@@ -510,10 +562,14 @@ function renderResumoResultado(container, dados) {
         blocoAtual = linha.bloco;
         html += `<p class="field-label" style="margin-top:14px;">${blocoAtual}</p>`;
       }
+      const pendente = linha.pendente || 0;
       html += `
         <div class="cat-item" style="display:flex; justify-content:space-between; align-items:center;">
           <span>${linha.categoria}</span>
-          <strong>R$ ${formatarMoeda(linha.valor)}</strong>
+          <span style="text-align:right;">
+            <strong>R$ ${formatarMoeda(linha.valor)}</strong>
+            ${pendente > 0 ? `<br><span style="font-size:11px; color: var(--brick);">R$ ${formatarMoeda(pendente)} pendente</span>` : ""}
+          </span>
         </div>
       `;
     });
