@@ -604,7 +604,7 @@ function renderResumoResultado(container, d) {
 // Últimos lançamentos — editar + excluir
 // ============================================================
 async function fetchRecentes(limite) {
-  const url = `${SCRIPT_URL}?recentes=1&limite=${limite || 30}`;
+  const url = `${SCRIPT_URL}?recentes=1&limite=${limite || 20}`;
   const json = await fetch(url).then((r) => r.json());
   if (json.status !== "ok") throw new Error(json.message || "Falha ao consultar lançamentos.");
   return json.itens || [];
