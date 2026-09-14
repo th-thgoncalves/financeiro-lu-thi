@@ -1,6 +1,4 @@
-// Service worker simples: só o necessário para o navegador permitir
-// "Adicionar à tela inicial" com aparência de app instalado.
-const CACHE_NAME = "financeiro-lt-v1";
+const CACHE_NAME = "financeiro-lt-v2";
 const ASSETS = [
   "./index.html",
   "./style.css",
@@ -11,27 +9,36 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(ASSETS)));
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
-      )
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
     )
   );
   self.clients.claim();
 });
 
-// Estratégia: tenta a rede primeiro (pra sempre pegar a versão mais nova),
-// cai pro cache só se estiver offline.
+// Network-first pro HTML/JS/CSS (sempre pega versão nova se tiver rede),
+// cache-first pros ícones.
 self.addEventListener("fetch", (event) => {
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
-  );
+  const url = new URL(event.request.url);
+  const isAppShell = /\/(index\.html|app\.js|style\.css)$/.test(url.pathname) || url.pathname.endsWith("/");
+
+  if (isAppShell) {
+    event.respondWith(
+      fetch(event.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((c) => c.put(event.request, copy));
+        return res;
+      }).catch(() => caches.match(event.request))
+    );
+  } else {
+    event.respondWith(
+      caches.match(event.request).then((cached) => cached || fetch(event.request))
+    );
+  }
 });
