@@ -529,3 +529,20 @@ button {
   font-size: 14px;
   padding: 40px 0;
 }
+
+/* ---------- Barra de orçamento ---------- */
+.barra {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.barra-preenchida {
+  height: 100%;
+  background: var(--teal);
+  border-radius: 999px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+.barra-preenchida.alerta   { background: var(--gold); }
+.barra-preenchida.estourou { background: var(--brick); }
