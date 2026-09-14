@@ -604,7 +604,7 @@ function renderResumoResultado(container, d) {
 // Últimos lançamentos — editar + excluir
 // ============================================================
 async function fetchRecentes(limite) {
-  const url = `${SCRIPT_URL}?recentes=1&limite=${limite || 10}`;
+  const url = `${SCRIPT_URL}?recentes=1&limite=${limite || 30}`;
   const json = await fetch(url).then((r) => r.json());
   if (json.status !== "ok") throw new Error(json.message || "Falha ao consultar lançamentos.");
   return json.itens || [];
@@ -623,7 +623,7 @@ async function carregarRecentes(container) {
   container.innerHTML = `<div class="resumo-loading"><span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span> &nbsp; Carregando...</div>`;
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
-    const itens = await fetchRecentes(10);
+    const itens = await fetchRecentes(30);
     if (itens.length === 0) {
       container.innerHTML = `<p class="resumo-vazio">Nenhum lançamento ainda.</p>`;
       return;
