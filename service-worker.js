@@ -1,4 +1,4 @@
-const CACHE_NAME = "financeiro-lt-v2";
+const CACHE_NAME = "financeiro-lt-v3";
 const ASSETS = [
   "./index.html",
   "./style.css",
@@ -22,19 +22,22 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Network-first pro HTML/JS/CSS (sempre pega versão nova se tiver rede),
-// cache-first pros ícones.
+// Network-first pro app shell (HTML/JS/CSS), cache-first pros ícones.
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  const isAppShell = /\/(index\.html|app\.js|style\.css)$/.test(url.pathname) || url.pathname.endsWith("/");
+  const isAppShell =
+    /\/(index\.html|app\.js|style\.css)$/.test(url.pathname) ||
+    url.pathname.endsWith("/");
 
   if (isAppShell) {
     event.respondWith(
-      fetch(event.request).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((c) => c.put(event.request, copy));
-        return res;
-      }).catch(() => caches.match(event.request))
+      fetch(event.request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(event.request, copy));
+          return res;
+        })
+        .catch(() => caches.match(event.request))
     );
   } else {
     event.respondWith(
