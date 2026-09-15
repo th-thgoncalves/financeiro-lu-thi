@@ -61,18 +61,16 @@ button {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* BLOCO A-v2: header com 3 colunas (back | título | resumo) e mais respiro */
 .app-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 48px 1fr 48px;
   align-items: center;
-  justify-content: center;
-  padding: 20px 16px 8px;
-  position: relative;
+  padding: 20px 12px 8px;
+  gap: 8px;
 }
 
 .back-btn {
-  position: absolute;
-  left: 12px;
-  top: 16px;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -83,6 +81,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  justify-self: start;
 }
 
 .header-spacer { width: 40px; }
@@ -97,6 +96,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  justify-self: end; /* BLOCO A-v2: gruda na coluna da direita, dando respiro do título */
 }
 
 .resumo-btn:active { transform: scale(0.95); }
@@ -106,6 +106,7 @@ button {
   flex-direction: column;
   align-items: center;
   line-height: 1;
+  justify-self: center; /* BLOCO A-v2: título centralizado dentro da coluna do meio */
 }
 
 .app-title .eyebrow {
@@ -318,7 +319,7 @@ button {
 
 .text-input:focus { border-color: var(--teal); }
 
-/* ---------- Summary chips (confirmação/observação step) ---------- */
+/* ---------- Summary chips ---------- */
 .summary {
   display: flex;
   flex-wrap: wrap;
@@ -369,6 +370,7 @@ button {
   font-weight: 600;
   padding: 12px;
   align-self: center;
+  min-height: 44px; /* alvo de toque iOS */
 }
 
 /* ---------- Spinner ---------- */
@@ -450,6 +452,7 @@ button {
   font-family: var(--font-body);
   margin-bottom: 18px;
   appearance: none;
+  -webkit-appearance: none;
   background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%), linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
   background-position: calc(100% - 20px) center, calc(100% - 15px) center;
   background-size: 5px 5px, 5px 5px;
@@ -546,7 +549,8 @@ button {
 }
 .barra-preenchida.alerta   { background: var(--gold); }
 .barra-preenchida.estourou { background: var(--brick); }
-/* ---------- Bloco A: barra de busca e filtros de Recentes ---------- */
+
+/* ---------- Bloco A: barra de busca ---------- */
 .search-input {
   width: 100%;
   border: 1px solid var(--line);
@@ -564,11 +568,8 @@ button {
   outline: none;
   border-color: var(--teal);
 }
-.search-input::placeholder {
-  color: var(--ink-soft);
-}
+.search-input::placeholder { color: var(--ink-soft); }
 
-/* iOS: inputs type=search vêm com aparência própria; neutralizamos */
 input[type="search"].search-input {
   -webkit-appearance: none;
 }
@@ -576,7 +577,7 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   -webkit-appearance: none;
 }
 
-/* Ações no cartão de lançamento (Editar / Excluir / Pago) */
+/* Ações no cartão de lançamento */
 .row-acoes {
   display: flex;
   gap: 8px;
@@ -593,7 +594,7 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   font-size: 13px;
   font-weight: 600;
   font-family: var(--font-body);
-  min-height: 44px; /* alvo de toque iOS */
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -606,7 +607,7 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 .btn-mini.desfazer  { color: var(--ink-soft); }
 .btn-mini.excluir   { color: var(--brick); border-color: var(--brick-tint); }
 
-/* Estado "sem resultados" da busca/filtro */
+/* Estado "sem resultados" / "convite" */
 .sem-resultado {
   text-align: center;
   color: var(--ink-soft);
@@ -614,10 +615,51 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   padding: 32px 0;
 }
 
-/* Botão de backup na home (mesmo visual dos tiles) */
-.tile-backup .tile-hint { color: var(--ink-soft); }
-
-/* Ajuste de toque: garantir que botões do wizard também tenham 44px */
-.btn-text {
-  min-height: 44px;
+/* BLOCO A-v2: convite inicial dos Recentes */
+.convite-inicial {
+  text-align: center;
+  padding: 40px 20px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.5;
 }
+.convite-inicial .icone {
+  font-size: 32px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+/* BLOCO A-v2: botão voltar ao topo (FAB) */
+.btn-topo {
+  position: fixed;
+  right: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--teal-dark);
+  font-size: 20px;
+  box-shadow: var(--shadow-card);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+.btn-topo.visivel { display: flex; }
+.btn-topo:active { transform: scale(0.94); }
+
+/* Em telas maiores que o app, centraliza o FAB junto do app */
+@media (min-width: 520px) {
+  .btn-topo {
+    right: calc(50% - 240px + 20px);
+  }
+}
+
+/* Ajuste de toque: botões do wizard também 44px */
+.tile-backup .tile-hint { color: var(--ink-soft); }
