@@ -546,3 +546,78 @@ button {
 }
 .barra-preenchida.alerta   { background: var(--gold); }
 .barra-preenchida.estourou { background: var(--brick); }
+/* ---------- Bloco A: barra de busca e filtros de Recentes ---------- */
+.search-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: var(--font-body);
+  color: var(--ink);
+  margin-bottom: 12px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--teal);
+}
+.search-input::placeholder {
+  color: var(--ink-soft);
+}
+
+/* iOS: inputs type=search vêm com aparência própria; neutralizamos */
+input[type="search"].search-input {
+  -webkit-appearance: none;
+}
+input[type="search"].search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+/* Ações no cartão de lançamento (Editar / Excluir / Pago) */
+.row-acoes {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.btn-mini {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  min-height: 44px; /* alvo de toque iOS */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-mini:active { transform: scale(0.97); }
+
+.btn-mini.pago      { color: var(--teal-dark); border-color: var(--teal); }
+.btn-mini.desfazer  { color: var(--ink-soft); }
+.btn-mini.excluir   { color: var(--brick); border-color: var(--brick-tint); }
+
+/* Estado "sem resultados" da busca/filtro */
+.sem-resultado {
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  padding: 32px 0;
+}
+
+/* Botão de backup na home (mesmo visual dos tiles) */
+.tile-backup .tile-hint { color: var(--ink-soft); }
+
+/* Ajuste de toque: garantir que botões do wizard também tenham 44px */
+.btn-text {
+  min-height: 44px;
+}
