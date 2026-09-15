@@ -96,11 +96,12 @@ const state = {
 
   // Edição
   editingId: null,
-  editingMeta: null, // { dataISO, hora }
+  editingMeta: null,
 
-  // Recentes (filtros)
-  recentesMes: "todos",  // "todos" ou label do mês
+  // Recentes
+  recentesMes: "todos",
   recentesBusca: "",
+  recentesIniciado: false, // BLOCO A-v2: só busca depois que o usuário interage
 };
 
 const TOTAL_STEPS = 6;
@@ -131,6 +132,8 @@ function resetState() {
   state.observacao = "";
   state.editingId = null;
   state.editingMeta = null;
+  // recentesMes/Busca/Iniciado são preservados de propósito
+  // (o usuário volta pra tela e vê o mesmo filtro de antes)
 }
 
 function goHome()        { state.screen = "home"; render(); }
@@ -155,6 +158,7 @@ function updateProgress() {
 function render() {
   updateProgress();
   screenWrap.innerHTML = "";
+  removerBotaoTopo(); // BLOCO A-v2: limpa o FAB a cada troca de tela
   if (state.screen === "home")      return renderHome();
   if (state.screen === "resumo")    return renderResumo();
   if (state.screen === "recentes")  return renderRecentes();
@@ -177,7 +181,43 @@ function screenEl(html) {
   return div;
 }
 
-// ---------- Home ----------
+// ============================================================
+// BLOCO A-v2: botão flutuante "voltar ao topo"
+// ============================================================
+let botaoTopoEl = null;
+
+function removerBotaoTopo() {
+  if (botaoTopoEl) {
+    botaoTopoEl.remove();
+    botaoTopoEl = null;
+  }
+  window.removeEventListener("scroll", handlerScrollTopo);
+}
+
+function handlerScrollTopo() {
+  if (!botaoTopoEl) return;
+  if (window.scrollY > 300) botaoTopoEl.classList.add("visivel");
+  else botaoTopoEl.classList.remove("visivel");
+}
+
+function instalarBotaoTopo() {
+  removerBotaoTopo();
+  const btn = document.createElement("button");
+  btn.className = "btn-topo";
+  btn.setAttribute("aria-label", "Voltar ao topo");
+  btn.textContent = "↑";
+  btn.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  document.body.appendChild(btn);
+  botaoTopoEl = btn;
+  window.addEventListener("scroll", handlerScrollTopo, { passive: true });
+  handlerScrollTopo();
+}
+
+// ============================================================
+// Home
+// ============================================================
 function renderHome() {
   const el = screenEl(`
     <p class="screen-sub" style="margin-top:2px;">O que você quer fazer?</p>
@@ -212,7 +252,9 @@ async function fazerBackupAgora() {
   }
 }
 
-// ---------- Passo 1 ----------
+// ============================================================
+// Wizard
+// ============================================================
 function renderQuem() {
   const el = screenEl(`
     <h2 class="screen-title">Quem está lançando?</h2>
@@ -229,7 +271,6 @@ function renderQuem() {
   });
 }
 
-// ---------- Passo 2 ----------
 function renderBloco() {
   const el = screenEl(`
     <h2 class="screen-title">Que tipo de lançamento?</h2>
@@ -251,7 +292,6 @@ function renderBloco() {
   });
 }
 
-// ---------- Passo 3 ----------
 function renderCategoria() {
   if (!CATEGORIAS_REMOTAS && !SCRIPT_URL.includes("COLE_AQUI")) {
     screenEl(`
@@ -315,7 +355,6 @@ function renderCategoria() {
   checkReady();
 }
 
-// ---------- Passo 4 ----------
 function renderValor() {
   const categoriaLabel = state.categoria === "Outro" ? state.categoriaOutro : state.categoria;
   const el = screenEl(`
@@ -342,7 +381,6 @@ function renderValor() {
   nextBtn.addEventListener("click", () => goToStep(5));
 }
 
-// ---------- Passo 5 ----------
 function renderStatus() {
   const isReceita = state.bloco === "Receita";
   const pergunta = isReceita ? "Esse valor já entrou na conta?" : "Essa despesa já foi paga?";
@@ -369,7 +407,6 @@ function renderStatus() {
   grid.appendChild(bn);
 }
 
-// ---------- Passo 6 ----------
 function renderObservacao() {
   const categoriaLabel = state.categoria === "Outro" ? state.categoriaOutro : state.categoria;
   const valorFormatado = parseValor(state.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
@@ -457,7 +494,9 @@ async function verificarOrcamentoNoLancamento(container, categoriaLabel) {
   } catch (e) {}
 }
 
-// ---------- Envio ----------
+// ============================================================
+// Salvar / editar lançamento
+// ============================================================
 async function salvar(button, errorSlot) {
   errorSlot.innerHTML = "";
   button.disabled = true;
@@ -483,11 +522,14 @@ async function salvar(button, errorSlot) {
 
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
+
+    // BLOCO A-v2: header simplificado — o Safari implicava com "text/plain;charset=utf-8"
     const json = await fetch(SCRIPT_URL, {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      headers: { "Content-Type": "text/plain" },
       body: JSON.stringify(payload),
     }).then((r) => r.json());
+
     if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o lançamento.");
     goToStep(7);
   } catch (err) {
@@ -497,7 +539,6 @@ async function salvar(button, errorSlot) {
   }
 }
 
-// ---------- Sucesso ----------
 function renderSucesso() {
   const foiEdicao = !!state.editingId;
   const el = screenEl(`
@@ -537,6 +578,9 @@ function renderResumo() {
     carregarResumo(el.querySelector("#resumoResultado"), state.resumoMes);
   });
   carregarResumo(el.querySelector("#resumoResultado"), state.resumoMes);
+
+  // BLOCO A-v2: FAB de voltar ao topo
+  instalarBotaoTopo();
 }
 
 async function carregarResumo(container, mesLabel) {
@@ -616,7 +660,7 @@ function renderResumoResultado(container, d) {
 }
 
 // ============================================================
-// Recentes — fetch com filtros
+// BLOCO A-v2: fetch de Recentes sem URLSearchParams (Safari-safe)
 // ============================================================
 async function fetchRecentes(opts) {
   const o = opts || {};
@@ -624,19 +668,17 @@ async function fetchRecentes(opts) {
   const mes    = o.mes || "";
   const busca  = o.busca || "";
 
-  const params = new URLSearchParams();
-  params.set("recentes", "1");
-  params.set("limite", String(limite));
-  if (mes && mes !== "todos") params.set("mesFiltro", mes);
-  if (busca) params.set("busca", busca);
+  let url = `${SCRIPT_URL}?recentes=1&limite=${limite}`;
+  if (mes && mes !== "todos") url += `&mesFiltro=${encodeURIComponent(mes)}`;
+  if (busca) url += `&busca=${encodeURIComponent(busca)}`;
 
-  const json = await fetch(`${SCRIPT_URL}?${params.toString()}`).then((r) => r.json());
+  const json = await fetch(url).then((r) => r.json());
   if (json.status !== "ok") throw new Error(json.message || "Falha ao consultar lançamentos.");
   return json.itens || [];
 }
 
 // ============================================================
-// Tela de Recentes
+// Tela de Recentes (BLOCO A-v2: só busca após interação)
 // ============================================================
 function renderRecentes() {
   const el = screenEl(`
@@ -656,7 +698,7 @@ function renderRecentes() {
   const mesSelect  = el.querySelector("#mesFiltroSelect");
   const listaEl    = el.querySelector("#recentesLista");
 
-  // Opções: "Todos" + os 13 meses do gerarOpcoesDeMes
+  // Opção "Todos os meses" + os 13 meses
   const optTodos = document.createElement("option");
   optTodos.value = "todos";
   optTodos.textContent = "Todos os meses";
@@ -672,20 +714,34 @@ function renderRecentes() {
 
   buscaInput.value = state.recentesBusca;
 
-  // Debounce simples pra não disparar fetch a cada letra
+  // BLOCO A-v2: se ainda não interagiu, mostra convite e NÃO busca
+  if (!state.recentesIniciado) {
+    listaEl.innerHTML = `
+      <div class="convite-inicial">
+        <span class="icone">🔍</span>
+        Digite algo na busca ou escolha um mês acima para ver seus lançamentos.
+      </div>
+    `;
+  } else {
+    carregarRecentes(listaEl);
+  }
+
   let debounceTimer = null;
   buscaInput.addEventListener("input", () => {
     state.recentesBusca = buscaInput.value;
+    state.recentesIniciado = true;
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => carregarRecentes(listaEl), 350);
   });
 
   mesSelect.addEventListener("change", () => {
     state.recentesMes = mesSelect.value;
+    state.recentesIniciado = true;
     carregarRecentes(listaEl);
   });
 
-  carregarRecentes(listaEl);
+  // BLOCO A-v2: FAB de voltar ao topo
+  instalarBotaoTopo();
 }
 
 async function carregarRecentes(container) {
@@ -750,14 +806,14 @@ function criarCartaoRecente(item, container) {
 }
 
 // ============================================================
-// Ações dos Recentes
+// Ações dos Recentes (BLOCO A-v2: header simplificado no POST)
 // ============================================================
 async function alternarPago(item, container) {
   const novoPago = !item.pago;
   try {
     const json = await fetch(SCRIPT_URL, {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      headers: { "Content-Type": "text/plain" },
       body: JSON.stringify({
         action: "marcarPago",
         id: item.id,
@@ -777,10 +833,9 @@ function duplicarItem(item) {
   state.bloco = item.bloco;
   state.categoria = item.categoria;
   state.valor = String(item.valor).replace(".", ",");
-  state.pago = false; // cópia entra como pendente
+  state.pago = false;
   state.observacao = item.observacao || "";
-  // editingId fica null → é um lançamento NOVO, com data/hora de agora
-  goToStep(6); // pula direto pra confirmação
+  goToStep(6);
 }
 
 function iniciarEdicao(item) {
@@ -802,7 +857,7 @@ async function excluirItem(item, container) {
   try {
     const json = await fetch(SCRIPT_URL, {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      headers: { "Content-Type": "text/plain" },
       body: JSON.stringify({ action: "excluir", id: item.id }),
     }).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "Falha ao excluir.");
