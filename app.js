@@ -22,6 +22,8 @@ const CATEGORIAS_PADRAO = {
 const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                   "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
+const LIMITE_RECENTES = 30;
+
 function mesAtualLabel() {
   const h = new Date();
   return `${MESES_PT[h.getMonth()]} de ${h.getFullYear()}`;
@@ -42,6 +44,9 @@ function parseValor(v) {
   const n = parseFloat(String(v).replace(/\./g, "").replace(",", "."));
   return isNaN(n) ? 0 : n;
 }
+function hojeISO() {
+  return new Date().toISOString().split("T")[0];
+}
 
 // ============================================================
 // Categorias e orçamentos remotos (com fallback)
@@ -61,7 +66,7 @@ function carregarCategorias() {
       ]);
       if (catRes && catRes.status === "ok" && catRes.categorias) CATEGORIAS_REMOTAS = catRes.categorias;
       if (orcRes && orcRes.status === "ok" && orcRes.orcamentos) ORCAMENTOS_REMOTOS = orcRes.orcamentos;
-    } catch (err) { /* segue com padrão */ }
+    } catch (err) {}
     return CATEGORIAS_REMOTAS;
   })();
   return categoriasPromise;
@@ -89,8 +94,13 @@ const state = {
   observacao: "",
   resumoMes: null,
 
-  editingId: null,   // quando != null, estamos editando um lançamento existente
-  editingMeta: null, // { data, hora } originais (pra preservar ao editar)
+  // Edição
+  editingId: null,
+  editingMeta: null, // { dataISO, hora }
+
+  // Recentes (filtros)
+  recentesMes: "todos",  // "todos" ou label do mês
+  recentesBusca: "",
 };
 
 const TOTAL_STEPS = 6;
@@ -185,7 +195,21 @@ function renderHome() {
 
   mk("tile-fixa", "+ Novo lançamento", "Registrar um gasto ou recebimento", () => { resetState(); goToStep(1); });
   mk("tile-variavel", "📊 Ver resumo do mês", "Consultar totais por categoria", () => goResumo());
-  mk("tile-receita", "🕘 Últimos lançamentos", "Ver, editar ou excluir os mais recentes", () => goRecentes());
+  mk("tile-receita", "🕘 Últimos lançamentos", "Ver, editar, marcar como pago ou excluir", () => goRecentes());
+  mk("tile-backup", "💾 Fazer backup agora", "Salvar uma cópia da planilha no Drive", () => fazerBackupAgora());
+}
+
+async function fazerBackupAgora() {
+  const ok = window.confirm("Fazer um backup da planilha agora? Vai criar uma cópia no seu Google Drive.");
+  if (!ok) return;
+  try {
+    if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("App não conectado à planilha.");
+    const json = await fetch(`${SCRIPT_URL}?backup=1`).then((r) => r.json());
+    if (json.status !== "ok") throw new Error(json.message || "Falha no backup.");
+    alert(json.message || "Backup concluído.");
+  } catch (err) {
+    alert(`Não deu pra fazer o backup: ${err.message}`);
+  }
 }
 
 // ---------- Passo 1 ----------
@@ -230,7 +254,7 @@ function renderBloco() {
 // ---------- Passo 3 ----------
 function renderCategoria() {
   if (!CATEGORIAS_REMOTAS && !SCRIPT_URL.includes("COLE_AQUI")) {
-    const el = screenEl(`
+    screenEl(`
       <div class="resumo-loading">
         <span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span>
         &nbsp; Carregando categorias...
@@ -250,7 +274,6 @@ function renderCategoria() {
       <p class="field-label">Digite o nome da categoria</p>
       <input type="text" class="text-input" id="outroInput" placeholder="Ex: Presente de aniversário" />
     </div>
-    <div id="orcamentoAviso" style="margin-top:12px;"></div>
     <button class="btn-primary" id="catNext" style="margin-top:18px;" disabled>Continuar</button>
   `);
 
@@ -304,7 +327,6 @@ function renderValor() {
         <input type="text" inputmode="decimal" class="value-input" id="valorInput" placeholder="0,00" />
       </div>
     </div>
-    <div id="orcamentoAvisoValor" style="margin-bottom:10px;"></div>
     <button class="btn-primary" id="valorNext" disabled>Continuar</button>
   `);
   const input = el.querySelector("#valorInput");
@@ -382,7 +404,6 @@ function renderObservacao() {
   const errSlot = el.querySelector("#errorSlot");
   btn.addEventListener("click", () => salvar(btn, errSlot));
 
-  // Só checa duplicado quando é lançamento novo
   if (!state.editingId) {
     verificarPossivelDuplicado(el.querySelector("#duplicadoSlot"), categoriaLabel);
   }
@@ -392,9 +413,8 @@ function renderObservacao() {
 async function verificarPossivelDuplicado(container, categoriaLabel) {
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) return;
-    const itens = await fetchRecentes(15);
-    const hojeISO = new Date().toISOString().split("T")[0];
-    const p = itens.find((it) => it.dataISO === hojeISO && it.bloco === state.bloco && it.categoria === categoriaLabel);
+    const itens = await fetchRecentes({ limite: 15 });
+    const p = itens.find((it) => it.dataISO === hojeISO() && it.bloco === state.bloco && it.categoria === categoriaLabel);
     if (p) {
       container.innerHTML = `
         <div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
@@ -413,7 +433,6 @@ async function verificarOrcamentoNoLancamento(container, categoriaLabel) {
     const limite = ORCAMENTOS_REMOTOS[`${state.bloco}||${categoriaLabel}`];
     if (!limite) return;
 
-    // Busca o total já lançado no mês atual nessa categoria
     const mesLabel = mesAtualLabel();
     const res = await fetch(`${SCRIPT_URL}?mes=${encodeURIComponent(mesLabel)}`).then((r) => r.json());
     if (!res || res.status !== "ok") return;
@@ -463,15 +482,12 @@ async function salvar(button, errorSlot) {
   };
 
   try {
-    if (SCRIPT_URL.includes("COLE_AQUI")) {
-      throw new Error("O app ainda não foi conectado à planilha.");
-    }
-    const res = await fetch(SCRIPT_URL, {
+    if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
+    const json = await fetch(SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload),
-    });
-    const json = await res.json();
+    }).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o lançamento.");
     goToStep(7);
   } catch (err) {
@@ -500,7 +516,7 @@ function renderSucesso() {
 }
 
 // ============================================================
-// Resumo (com orçamento visual)
+// Resumo
 // ============================================================
 function renderResumo() {
   const el = screenEl(`
@@ -527,8 +543,7 @@ async function carregarResumo(container, mesLabel) {
   container.innerHTML = `<div class="resumo-loading"><span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span> &nbsp; Carregando...</div>`;
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
-    const url = `${SCRIPT_URL}?mes=${encodeURIComponent(mesLabel)}`;
-    const json = await fetch(url).then((r) => r.json());
+    const json = await fetch(`${SCRIPT_URL}?mes=${encodeURIComponent(mesLabel)}`).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "Falha ao consultar.");
     renderResumoResultado(container, json);
   } catch (err) {
@@ -601,63 +616,171 @@ function renderResumoResultado(container, d) {
 }
 
 // ============================================================
-// Últimos lançamentos — editar + excluir
+// Recentes — fetch com filtros
 // ============================================================
-async function fetchRecentes(limite) {
-  const url = `${SCRIPT_URL}?recentes=1&limite=${limite || 20}`;
-  const json = await fetch(url).then((r) => r.json());
+async function fetchRecentes(opts) {
+  const o = opts || {};
+  const limite = o.limite || LIMITE_RECENTES;
+  const mes    = o.mes || "";
+  const busca  = o.busca || "";
+
+  const params = new URLSearchParams();
+  params.set("recentes", "1");
+  params.set("limite", String(limite));
+  if (mes && mes !== "todos") params.set("mesFiltro", mes);
+  if (busca) params.set("busca", busca);
+
+  const json = await fetch(`${SCRIPT_URL}?${params.toString()}`).then((r) => r.json());
   if (json.status !== "ok") throw new Error(json.message || "Falha ao consultar lançamentos.");
   return json.itens || [];
 }
 
+// ============================================================
+// Tela de Recentes
+// ============================================================
 function renderRecentes() {
   const el = screenEl(`
     <h2 class="screen-title">Últimos lançamentos</h2>
-    <p class="screen-sub">Toque em editar ou excluir para corrigir algo lançado por engano.</p>
+    <p class="screen-sub">Edite, marque como pago/recebido, duplique ou exclua.</p>
+
+    <input type="search" class="search-input" id="buscaInput"
+           placeholder="Buscar por categoria, pessoa, bloco..." />
+
+    <p class="field-label">Mês</p>
+    <select class="mes-select" id="mesFiltroSelect" style="margin-bottom:16px;"></select>
+
     <div id="recentesLista"></div>
   `);
-  carregarRecentes(el.querySelector("#recentesLista"));
+
+  const buscaInput = el.querySelector("#buscaInput");
+  const mesSelect  = el.querySelector("#mesFiltroSelect");
+  const listaEl    = el.querySelector("#recentesLista");
+
+  // Opções: "Todos" + os 13 meses do gerarOpcoesDeMes
+  const optTodos = document.createElement("option");
+  optTodos.value = "todos";
+  optTodos.textContent = "Todos os meses";
+  if (state.recentesMes === "todos") optTodos.selected = true;
+  mesSelect.appendChild(optTodos);
+
+  gerarOpcoesDeMes().forEach((label) => {
+    const opt = document.createElement("option");
+    opt.value = label; opt.textContent = label;
+    if (label === state.recentesMes) opt.selected = true;
+    mesSelect.appendChild(opt);
+  });
+
+  buscaInput.value = state.recentesBusca;
+
+  // Debounce simples pra não disparar fetch a cada letra
+  let debounceTimer = null;
+  buscaInput.addEventListener("input", () => {
+    state.recentesBusca = buscaInput.value;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => carregarRecentes(listaEl), 350);
+  });
+
+  mesSelect.addEventListener("change", () => {
+    state.recentesMes = mesSelect.value;
+    carregarRecentes(listaEl);
+  });
+
+  carregarRecentes(listaEl);
 }
 
 async function carregarRecentes(container) {
   container.innerHTML = `<div class="resumo-loading"><span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span> &nbsp; Carregando...</div>`;
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
-    const itens = await fetchRecentes(30);
+
+    const itens = await fetchRecentes({
+      limite: LIMITE_RECENTES,
+      mes: state.recentesMes,
+      busca: state.recentesBusca,
+    });
+
     if (itens.length === 0) {
-      container.innerHTML = `<p class="resumo-vazio">Nenhum lançamento ainda.</p>`;
+      container.innerHTML = `<p class="sem-resultado">Nenhum lançamento encontrado com esses filtros.</p>`;
       return;
     }
+
     container.innerHTML = "";
     const list = document.createElement("div");
     list.className = "cat-list";
 
     itens.forEach((item) => {
-      const row = document.createElement("div");
-      row.className = "cat-item";
-      row.style.display = "flex";
-      row.style.flexDirection = "column";
-      row.style.gap = "8px";
-
-      const statusTxt = item.pago ? "" : ` · <span style="color:var(--brick);">pendente</span>`;
-      row.innerHTML = `
-        <div>
-          <strong>${item.categoria}</strong> — R$ ${formatarMoeda(item.valor)}<br>
-          <span style="font-size:12px; color:var(--ink-soft);">${item.quem} · ${item.bloco} · ${item.data} ${item.hora}${statusTxt}</span>
-        </div>
-        <div style="display:flex; gap:8px; justify-content:flex-end;">
-          <button class="btn-text" data-acao="editar"  style="color: var(--teal); padding: 6px 10px;">Editar</button>
-          <button class="btn-text" data-acao="excluir" style="color: var(--brick); padding: 6px 10px;">Excluir</button>
-        </div>
-      `;
-      row.querySelector('[data-acao="editar"]').addEventListener("click", () => iniciarEdicao(item));
-      row.querySelector('[data-acao="excluir"]').addEventListener("click", () => excluirItem(item, container));
-      list.appendChild(row);
+      list.appendChild(criarCartaoRecente(item, container));
     });
     container.appendChild(list);
   } catch (err) {
     container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
   }
+}
+
+function criarCartaoRecente(item, container) {
+  const row = document.createElement("div");
+  row.className = "cat-item";
+  row.style.display = "flex";
+  row.style.flexDirection = "column";
+  row.style.gap = "8px";
+
+  const statusTxt = item.pago ? "" : ` · <span style="color:var(--brick);">pendente</span>`;
+
+  row.innerHTML = `
+    <div>
+      <strong>${item.categoria}</strong> — R$ ${formatarMoeda(item.valor)}<br>
+      <span style="font-size:12px; color:var(--ink-soft);">${item.quem} · ${item.bloco} · ${item.data} ${item.hora}${statusTxt}</span>
+    </div>
+    <div class="row-acoes">
+      <button class="btn-mini ${item.pago ? "desfazer" : "pago"}" data-acao="pago">
+        ${item.pago ? "Desfazer pago" : "Marcar pago"}
+      </button>
+      <button class="btn-mini" data-acao="duplicar">Duplicar</button>
+      <button class="btn-mini" data-acao="editar">Editar</button>
+      <button class="btn-mini excluir" data-acao="excluir">Excluir</button>
+    </div>
+  `;
+
+  row.querySelector('[data-acao="pago"]').addEventListener("click", () => alternarPago(item, container));
+  row.querySelector('[data-acao="duplicar"]').addEventListener("click", () => duplicarItem(item));
+  row.querySelector('[data-acao="editar"]').addEventListener("click", () => iniciarEdicao(item));
+  row.querySelector('[data-acao="excluir"]').addEventListener("click", () => excluirItem(item, container));
+
+  return row;
+}
+
+// ============================================================
+// Ações dos Recentes
+// ============================================================
+async function alternarPago(item, container) {
+  const novoPago = !item.pago;
+  try {
+    const json = await fetch(SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "marcarPago",
+        id: item.id,
+        pago: novoPago ? "Sim" : "Não",
+      }),
+    }).then((r) => r.json());
+    if (json.status !== "ok") throw new Error(json.message || "Falha ao atualizar.");
+    carregarRecentes(container);
+  } catch (err) {
+    alert(`Não deu pra atualizar: ${err.message}`);
+  }
+}
+
+function duplicarItem(item) {
+  resetState();
+  state.quem = item.quem;
+  state.bloco = item.bloco;
+  state.categoria = item.categoria;
+  state.valor = String(item.valor).replace(".", ",");
+  state.pago = false; // cópia entra como pendente
+  state.observacao = item.observacao || "";
+  // editingId fica null → é um lançamento NOVO, com data/hora de agora
+  goToStep(6); // pula direto pra confirmação
 }
 
 function iniciarEdicao(item) {
@@ -670,7 +793,7 @@ function iniciarEdicao(item) {
   state.valor = String(item.valor).replace(".", ",");
   state.pago = !!item.pago;
   state.observacao = item.observacao || "";
-  goToStep(6); // pula direto pra confirmação, já com tudo preenchido
+  goToStep(6);
 }
 
 async function excluirItem(item, container) {
