@@ -1,5 +1,5 @@
 // ============================================================
-// CONFIGURAÇÃO — troque pela URL do seu Google Apps Script
+// CONFIGURAÇÃO
 // ============================================================
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw6tvdUdsNQI5VZpdxQ43bMYf5bcCAa3rApESvEx4asN-f4IPKBoOlPTulXLUfG4EL0iQ/exec";
 
@@ -23,7 +23,8 @@ const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                   "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
 const LIMITE_RECENTES = 30;
-const MESES_FUTUROS = 12; // BLOCO B-1: atual + 12 seguintes
+const MESES_FUTUROS = 12;
+const MAX_PARCELAS = 24;
 
 function mesAtualLabel() {
   const h = new Date();
@@ -38,7 +39,7 @@ function gerarOpcoesDeMes() {
   return out;
 }
 
-// BLOCO B-1: meses do wizard — atual + 12 seguintes
+// Meses do wizard: atual + 12 seguintes
 function gerarMesesLancamento() {
   const out = []; const h = new Date();
   for (let off = 0; off <= MESES_FUTUROS; off++) {
@@ -65,9 +66,6 @@ function hojeISO() {
   return new Date().toISOString().split("T")[0];
 }
 
-// BLOCO B-1: monta a data-alvo AAAA-MM-DD a partir de um {ano, mesIndex}
-// Preserva o dia de hoje, mas se o mês-alvo não tiver esse dia (ex: 31),
-// cai pro último dia do mês (ex: 30).
 function montarDataAlvo(mesObj) {
   const hoje = new Date();
   const diaDesejado = hoje.getDate();
@@ -80,7 +78,25 @@ function montarDataAlvo(mesObj) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// BLOCO B-1: verifica se uma dataISO é de um mês futuro em relação a hoje
+// BLOCO B-2: gera as datas das N parcelas a partir de um mês-base
+function gerarDatasParcelas(mesBase, quantidade) {
+  const hoje = new Date();
+  const diaDesejado = hoje.getDate();
+  const datas = [];
+  for (let i = 0; i < quantidade; i++) {
+    const totalMes = mesBase.mesIndex + i;
+    const ano = mesBase.ano + Math.floor(totalMes / 12);
+    const mesIndex = ((totalMes % 12) + 12) % 12;
+    const ultimoDia = new Date(ano, mesIndex + 1, 0).getDate();
+    const dia = Math.min(diaDesejado, ultimoDia);
+    const yyyy = ano;
+    const mm = String(mesIndex + 1).padStart(2, "0");
+    const dd = String(dia).padStart(2, "0");
+    datas.push(`${yyyy}-${mm}-${dd}`);
+  }
+  return datas;
+}
+
 function ehMesFuturo(dataISO) {
   if (!dataISO) return false;
   const [y, m] = dataISO.split("-").map(Number);
@@ -88,8 +104,21 @@ function ehMesFuturo(dataISO) {
   return (y > hoje.getFullYear()) || (y === hoje.getFullYear() && (m - 1) > hoje.getMonth());
 }
 
+// Calcula valor de cada parcela com ajuste de centavos na última
+function calcularParcelas(valorTotal, quantidade) {
+  const totalCentavos = Math.round(valorTotal * 100);
+  const baseCentavos = Math.floor(totalCentavos / quantidade);
+  const resto = totalCentavos - baseCentavos * quantidade;
+  const valores = [];
+  for (let i = 0; i < quantidade; i++) {
+    const c = baseCentavos + (i === quantidade - 1 ? resto : 0);
+    valores.push(c / 100);
+  }
+  return valores;
+}
+
 // ============================================================
-// Categorias e orçamentos remotos (com fallback)
+// Categorias e orçamentos remotos
 // ============================================================
 let CATEGORIAS_REMOTAS = null;
 let categoriasPromise = null;
@@ -130,8 +159,13 @@ const state = {
   categoria: null,
   categoriaOutro: "",
   valor: "",
-  // BLOCO B-1: mês-alvo do lançamento
-  mesLancamento: null, // { label, ano, mesIndex, offset }
+
+  // BLOCO B-2: parcelamento
+  parcelado: null,        // null = ainda não respondeu; false = à vista; true = parcelado
+  quantidadeParcelas: null, // 2..24 (só quando parcelado)
+
+  mesLancamento: null,    // mês da 1ª parcela (ou única)
+
   pago: null,
   observacao: "",
   resumoMes: null,
@@ -144,8 +178,7 @@ const state = {
   recentesIniciado: false,
 };
 
-// Wizard agora tem 7 passos (antes do sucesso)
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 
 const screenWrap = document.getElementById("screenWrap");
 const backBtn = document.getElementById("backBtn");
@@ -169,7 +202,9 @@ function resetState() {
   state.categoria = null;
   state.categoriaOutro = "";
   state.valor = "";
-  state.mesLancamento = null; // volta ao padrão (mês atual) no próximo wizard
+  state.parcelado = null;
+  state.quantidadeParcelas = null;
+  state.mesLancamento = null;
   state.pago = null;
   state.observacao = "";
   state.editingId = null;
@@ -189,7 +224,7 @@ function updateProgress() {
     dot.classList.toggle("active", isWizard && n === state.step);
     dot.classList.toggle("done",   isWizard && n < state.step);
   });
-  backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 8);
+  backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 9);
 }
 
 // ============================================================
@@ -207,10 +242,12 @@ function render() {
     case 2: renderBloco(); break;
     case 3: renderCategoria(); break;
     case 4: renderValor(); break;
-    case 5: renderMesLancamento(); break;  // BLOCO B-1
-    case 6: renderStatus(); break;
-    case 7: renderObservacao(); break;
-    case 8: renderSucesso(); break;
+    case 5: renderParcelado(); break;        // BLOCO B-2
+    case 6: renderQuantidadeParcelas(); break; // BLOCO B-2
+    case 7: renderMesLancamento(); break;
+    case 8: renderStatus(); break;
+    case 9: renderObservacao(); break;
+    case 10: renderSucesso(); break;
   }
 }
 
@@ -223,7 +260,7 @@ function screenEl(html) {
 }
 
 // ============================================================
-// Botão flutuante "voltar ao topo"
+// Botão voltar ao topo
 // ============================================================
 let botaoTopoEl = null;
 
@@ -294,7 +331,7 @@ async function fazerBackupAgora() {
 }
 
 // ============================================================
-// Wizard — passos 1 a 4
+// Wizard — 1 a 4
 // ============================================================
 function renderQuem() {
   const el = screenEl(`
@@ -407,6 +444,7 @@ function renderValor() {
         <input type="text" inputmode="decimal" class="value-input" id="valorInput" placeholder="0,00" />
       </div>
     </div>
+    <p class="field-label" style="text-align:center; margin-top:8px;">Valor total, não o da parcela.</p>
     <button class="btn-primary" id="valorNext" disabled>Continuar</button>
   `);
   const input = el.querySelector("#valorInput");
@@ -423,14 +461,104 @@ function renderValor() {
 }
 
 // ============================================================
-// BLOCO B-1: passo 5 — quando é o lançamento
+// BLOCO B-2: passo 5 — é parcelado?
+// ============================================================
+function renderParcelado() {
+  const el = screenEl(`
+    <h2 class="screen-title">É parcelado?</h2>
+    <p class="screen-sub">Se for uma compra (ou recebimento) dividida em várias vezes, escolha "Sim".</p>
+    <div class="tile-grid" id="parcGrid" style="gap:12px;"></div>
+  `);
+  const grid = el.querySelector("#parcGrid");
+
+  const bs = document.createElement("button");
+  bs.className = "tile tile-variavel";
+  bs.innerHTML = `Sim, é parcelado<span class="tile-hint">Vou dividir em 2x ou mais</span>`;
+  bs.addEventListener("click", () => {
+    state.parcelado = true;
+    state.quantidadeParcelas = state.quantidadeParcelas || 2;
+    goToStep(6);
+  });
+  grid.appendChild(bs);
+
+  const bn = document.createElement("button");
+  bn.className = "tile tile-fixa";
+  bn.innerHTML = `Não, é à vista<span class="tile-hint">Valor único, cai em um mês só</span>`;
+  bn.addEventListener("click", () => {
+    state.parcelado = false;
+    state.quantidadeParcelas = null;
+    goToStep(7);
+  });
+  grid.appendChild(bn);
+}
+
+// ============================================================
+// BLOCO B-2: passo 6 — quantas parcelas?
+// ============================================================
+function renderQuantidadeParcelas() {
+  const valorTotal = parseValor(state.valor);
+  const el = screenEl(`
+    <h2 class="screen-title">Em quantas vezes?</h2>
+    <p class="screen-sub">Total de <strong>R$ ${formatarMoeda(valorTotal)}</strong> dividido em:</p>
+    <div class="parcelas-grid" id="parcGrid"></div>
+    <div id="parcResumo"></div>
+    <button class="btn-primary" id="parcNext" disabled>Continuar</button>
+  `);
+
+  const grid = el.querySelector("#parcGrid");
+  const resumo = el.querySelector("#parcResumo");
+  const nextBtn = el.querySelector("#parcNext");
+
+  const opcoes = [2,3,4,5,6,7,8,9,10,12,15,18,21,24];
+  opcoes.forEach((n) => {
+    const b = document.createElement("button");
+    b.className = "parcela-btn";
+    b.textContent = `${n}x`;
+    if (state.quantidadeParcelas === n) b.classList.add("selected");
+    b.addEventListener("click", () => {
+      state.quantidadeParcelas = n;
+      grid.querySelectorAll(".parcela-btn").forEach((x) => x.classList.remove("selected"));
+      b.classList.add("selected");
+      atualizarResumo();
+    });
+    grid.appendChild(b);
+  });
+
+  function atualizarResumo() {
+    if (!state.quantidadeParcelas) {
+      resumo.innerHTML = "";
+      nextBtn.disabled = true;
+      return;
+    }
+    const valores = calcularParcelas(valorTotal, state.quantidadeParcelas);
+    const primeiro = valores[0];
+    const ultimo = valores[valores.length - 1];
+    const texto = primeiro === ultimo
+      ? `${state.quantidadeParcelas}x de <strong>R$ ${formatarMoeda(primeiro)}</strong>`
+      : `${state.quantidadeParcelas}x de <strong>R$ ${formatarMoeda(primeiro)}</strong> (última: <strong>R$ ${formatarMoeda(ultimo)}</strong>)`;
+    resumo.innerHTML = `<div class="parcela-resumo">${texto}</div>`;
+    nextBtn.disabled = false;
+  }
+
+  atualizarResumo();
+  nextBtn.addEventListener("click", () => goToStep(7));
+}
+
+// ============================================================
+// Passo 7 — quando (mês da 1ª parcela / mês único)
 // ============================================================
 function renderMesLancamento() {
   const isReceita = state.bloco === "Receita";
-  const titulo = isReceita ? "Quando você vai receber?" : "Quando é pra pagar?";
-  const sub = isReceita
-    ? "Escolha o mês em que esse valor deve entrar na conta."
-    : "Escolha o mês em que essa despesa deve ser paga.";
+  const parcelado = state.parcelado === true;
+
+  const titulo = parcelado
+    ? "Quando vence a primeira parcela?"
+    : (isReceita ? "Quando você vai receber?" : "Quando é pra pagar?");
+  const sub = parcelado
+    ? "Normalmente no mês seguinte (fatura do cartão). Escolha conforme o caso."
+    : (isReceita
+      ? "Escolha o mês em que esse valor deve entrar na conta."
+      : "Escolha o mês em que essa despesa deve ser paga.");
 
   const el = screenEl(`
     <h2 class="screen-title">${titulo}</h2>
@@ -443,8 +571,12 @@ function renderMesLancamento() {
   const nextBtn = el.querySelector("#mesNext");
 
   const meses = gerarMesesLancamento();
-  // Se o state ainda não tem mês, pré-seleciona o mês atual (offset 0)
-  if (!state.mesLancamento) state.mesLancamento = meses[0];
+
+  // BLOCO B-2: se parcelado, pré-seleciona mês seguinte (offset 1).
+  // Se não parcelado e sem seleção, pré-seleciona mês atual (offset 0).
+  if (!state.mesLancamento) {
+    state.mesLancamento = parcelado ? meses[1] : meses[0];
+  }
 
   meses.forEach((mes) => {
     const b = document.createElement("button");
@@ -464,37 +596,37 @@ function renderMesLancamento() {
   function checkReady() {
     nextBtn.disabled = !state.mesLancamento;
   }
-
-  // Se já tem seleção (pré-selecionada ou vinda de edição), habilita
   checkReady();
-
-  nextBtn.addEventListener("click", () => {
-    // BLOCO B-1: se for mês futuro e o usuário ainda não respondeu o "pago",
-    // pré-seleciona "ainda não" — mas ele pode mudar no próximo passo
-    goToStep(6);
-  });
+  nextBtn.addEventListener("click", () => goToStep(8));
 }
 
 // ============================================================
-// Passo 6 — já foi pago/recebido
+// Passo 8 — já foi pago/recebido
 // ============================================================
 function renderStatus() {
   const isReceita = state.bloco === "Receita";
+  const parcelado = state.parcelado === true;
   const pergunta = isReceita ? "Esse valor já entrou na conta?" : "Essa despesa já foi paga?";
   const sim = isReceita ? "Sim, já recebido" : "Sim, já paguei";
   const nao = isReceita ? "Ainda não" : "Ainda não paguei";
 
-  // BLOCO B-1: se o mês escolhido for futuro, sugerimos "não" — mas
-  // pré-selecionamos mesmo assim como `false` só pra ficar visível. O
-  // usuário ainda precisa tocar no botão; nada é gravado silenciosamente.
   const futuro = state.mesLancamento && state.mesLancamento.offset > 0;
+
+  let aviso = "";
+  if (parcelado) {
+    aviso = `<div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
+      No parcelamento, as parcelas futuras entram automaticamente como <strong>pendentes</strong>. Só a primeira usa a resposta abaixo.
+    </div>`;
+  } else if (futuro) {
+    aviso = `<div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
+      Você escolheu um mês futuro. Normalmente ainda não foi ${isReceita ? "recebido" : "pago"}, mas confirme abaixo.
+    </div>`;
+  }
 
   const el = screenEl(`
     <h2 class="screen-title">${pergunta}</h2>
     <p class="screen-sub">Isso separa o que já é dinheiro de fato do que ainda está previsto.</p>
-    ${futuro ? `<div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
-      Você escolheu um mês futuro. Normalmente ainda não foi ${isReceita ? "recebido" : "pago"}, mas confirme abaixo.
-    </div>` : ""}
+    ${aviso}
     <div class="tile-grid" id="statusGrid" style="gap:12px;"></div>
   `);
   const grid = el.querySelector("#statusGrid");
@@ -502,18 +634,18 @@ function renderStatus() {
   const bs = document.createElement("button");
   bs.className = "tile tile-fixa";
   bs.textContent = sim;
-  bs.addEventListener("click", () => { state.pago = true; goToStep(7); });
+  bs.addEventListener("click", () => { state.pago = true; goToStep(9); });
   grid.appendChild(bs);
 
   const bn = document.createElement("button");
   bn.className = "tile tile-cartao";
   bn.textContent = nao;
-  bn.addEventListener("click", () => { state.pago = false; goToStep(7); });
+  bn.addEventListener("click", () => { state.pago = false; goToStep(9); });
   grid.appendChild(bn);
 }
 
 // ============================================================
-// Passo 7 — observação + salvar
+// Passo 9 — observação + salvar
 // ============================================================
 function renderObservacao() {
   const categoriaLabel = state.categoria === "Outro" ? state.categoriaOutro : state.categoria;
@@ -530,6 +662,17 @@ function renderObservacao() {
     ? ` · <em style="color: var(--gold);">${mesLabel}</em>`
     : "";
 
+  let parcelaTag = "";
+  if (state.parcelado && state.quantidadeParcelas) {
+    const valores = calcularParcelas(parseValor(state.valor), state.quantidadeParcelas);
+    const primeiro = valores[0];
+    const ultimo = valores[valores.length - 1];
+    const detalhe = primeiro === ultimo
+      ? `${state.quantidadeParcelas}x de R$ ${formatarMoeda(primeiro)}`
+      : `${state.quantidadeParcelas}x de R$ ${formatarMoeda(primeiro)} (última R$ ${formatarMoeda(ultimo)})`;
+    parcelaTag = `<span class="chip"><strong>${detalhe}</strong></span>`;
+  }
+
   const el = screenEl(`
     <h2 class="screen-title">${titulo}</h2>
     <div class="summary">
@@ -537,6 +680,7 @@ function renderObservacao() {
       <span class="chip">${state.bloco}</span>
       <span class="chip">${categoriaLabel}</span>
       <span class="chip"><strong>R$ ${valorFormatado}</strong></span>
+      ${parcelaTag}
       <span class="chip">${statusLabel}${mesTag}</span>
     </div>
     <div id="duplicadoSlot"></div>
@@ -608,7 +752,7 @@ async function verificarOrcamentoNoLancamento(container, categoriaLabel) {
 }
 
 // ============================================================
-// Salvar / editar lançamento
+// Salvar (individual OU em lote se parcelado)
 // ============================================================
 async function salvar(button, errorSlot) {
   errorSlot.innerHTML = "";
@@ -617,44 +761,92 @@ async function salvar(button, errorSlot) {
   button.innerHTML = `<span class="spinner"></span> Salvando...`;
 
   const now = new Date();
-
-  // BLOCO B-1: se temos mesLancamento escolhido, usamos ele pra montar
-  // a data-alvo. Senão (edição), usamos a data original.
-  let dataISO;
-  if (state.editingId && state.editingMeta?.dataISO) {
-    // Em edição, se o usuário não passou pelo passo de mês (foi direto
-    // pra confirmação), mantemos a data original.
-    dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : state.editingMeta.dataISO;
-  } else {
-    dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : now.toISOString().split("T")[0];
-  }
-
   const hora = state.editingMeta?.hora || now.toTimeString().slice(0, 5);
-
-  const payload = {
-    action: state.editingId ? "editar" : undefined,
-    id: state.editingId || undefined,
-    data: dataISO,
-    hora,
-    quem: state.quem,
-    bloco: state.bloco,
-    categoria: state.categoria === "Outro" ? state.categoriaOutro : state.categoria,
-    valor: parseValor(state.valor),
-    pago: state.pago ? "Sim" : "Não",
-    observacao: state.observacao,
-  };
+  const categoriaFinal = state.categoria === "Outro" ? state.categoriaOutro : state.categoria;
 
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
 
+    // ---------- Edição individual ----------
+    if (state.editingId) {
+      const dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : state.editingMeta.dataISO;
+      const payload = {
+        action: "editar",
+        id: state.editingId,
+        data: dataISO,
+        hora,
+        quem: state.quem,
+        bloco: state.bloco,
+        categoria: categoriaFinal,
+        valor: parseValor(state.valor),
+        pago: state.pago ? "Sim" : "Não",
+        observacao: state.observacao,
+        parcela: state.editingMeta?.parcela || "",
+      };
+      const json = await fetch(SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(payload),
+      }).then((r) => r.json());
+      if (json.status !== "ok") throw new Error(json.message || "A planilha recusou a alteração.");
+      goToStep(10);
+      return;
+    }
+
+    // ---------- Criação parcelada (lote) ----------
+    if (state.parcelado && state.quantidadeParcelas > 1) {
+      const valorTotal = parseValor(state.valor);
+      const valores = calcularParcelas(valorTotal, state.quantidadeParcelas);
+      const datas = gerarDatasParcelas(state.mesLancamento, state.quantidadeParcelas);
+
+      const itens = datas.map((dataISO, i) => {
+        const numero = i + 1;
+        // Primeira parcela: respeita a resposta de "já pago".
+        // Demais: sempre pendente.
+        const pagoParcela = (numero === 1 && state.pago) ? "Sim" : "Não";
+        return {
+          data: dataISO,
+          hora,
+          quem: state.quem,
+          bloco: state.bloco,
+          categoria: categoriaFinal,
+          valor: valores[i],
+          pago: pagoParcela,
+          observacao: state.observacao,
+          parcela: `${numero}/${state.quantidadeParcelas}`,
+        };
+      });
+
+      const json = await fetch(SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ action: "criarLote", itens }),
+      }).then((r) => r.json());
+      if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o parcelamento.");
+      goToStep(10);
+      return;
+    }
+
+    // ---------- Criação à vista ----------
+    const dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : now.toISOString().split("T")[0];
+    const payload = {
+      data: dataISO,
+      hora,
+      quem: state.quem,
+      bloco: state.bloco,
+      categoria: categoriaFinal,
+      valor: parseValor(state.valor),
+      pago: state.pago ? "Sim" : "Não",
+      observacao: state.observacao,
+      parcela: "",
+    };
     const json = await fetch(SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
       body: JSON.stringify(payload),
     }).then((r) => r.json());
-
     if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o lançamento.");
-    goToStep(8);
+    goToStep(10);
   } catch (err) {
     errorSlot.innerHTML = `<div class="error-banner">Não deu pra salvar: ${err.message}</div>`;
     button.disabled = false;
@@ -664,11 +856,19 @@ async function salvar(button, errorSlot) {
 
 function renderSucesso() {
   const foiEdicao = !!state.editingId;
+  const foiParcelado = state.parcelado && state.quantidadeParcelas > 1;
+  const titulo = foiEdicao
+    ? "Lançamento atualizado!"
+    : (foiParcelado ? "Parcelamento salvo!" : "Lançamento salvo!");
+  const detalhe = foiParcelado
+    ? `${state.quantidadeParcelas} parcelas foram criadas, uma por mês.`
+    : "Já foi direto pra planilha.";
+
   const el = screenEl(`
     <div class="success-wrap">
       <div class="success-mark">✓</div>
-      <h2 class="success-title">${foiEdicao ? "Lançamento atualizado!" : "Lançamento salvo!"}</h2>
-      <p class="success-detail">Já foi direto pra planilha.</p>
+      <h2 class="success-title">${titulo}</h2>
+      <p class="success-detail">${detalhe}</p>
       <button class="btn-primary" id="novoBtn" style="margin-top:20px; width:100%;">
         ${foiEdicao ? "Novo lançamento" : "Lançar outro"}
       </button>
@@ -691,8 +891,6 @@ function renderResumo() {
   `);
   const select = el.querySelector("#mesSelect");
 
-  // BLOCO B-1: no Resumo, oferecemos também os 12 meses futuros,
-  // porque agora é possível lançar coisa em meses futuros.
   const opcoes = gerarOpcoesDeMes();
   gerarMesesLancamento().forEach((m) => {
     if (!opcoes.includes(m.label)) opcoes.push(m.label);
@@ -768,11 +966,12 @@ function renderResumoResultado(container, d) {
       const temLimite = l.limite != null && l.limite > 0;
       const pct = temLimite ? Math.min(100, Math.round((l.valor / l.limite) * 100)) : 0;
       const estourou = !!l.estourou;
+      const parcelaTag = l.parcela ? `<span class="tag-parcela">${l.parcela}</span>` : "";
 
       html += `
         <div class="cat-item" style="display:flex; flex-direction:column; gap:6px; ${estourou ? "border-color: var(--brick); background: var(--brick-tint);" : ""}">
           <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span>${l.categoria}</span>
+            <span>${l.categoria}${parcelaTag}</span>
             <span style="text-align:right;">
               <strong${estourou ? ' style="color: var(--brick);"' : ""}>R$ ${formatarMoeda(l.valor)}</strong>
               ${temLimite ? `<br><span style="font-size:11px; color: var(--ink-soft);">limite R$ ${formatarMoeda(l.limite)}</span>` : ""}
@@ -835,7 +1034,6 @@ function renderRecentes() {
   if (state.recentesMes === "todos") optTodos.selected = true;
   mesSelect.appendChild(optTodos);
 
-  // BLOCO B-1: no filtro de Recentes, oferecemos também os 12 meses futuros
   const opcoes = gerarOpcoesDeMes();
   gerarMesesLancamento().forEach((m) => {
     if (!opcoes.includes(m.label)) opcoes.push(m.label);
@@ -908,7 +1106,7 @@ async function carregarRecentes(container) {
 
 function criarCartaoRecente(item, container) {
   const row = document.createElement("div");
-  row.className = "cat-item" + (item.pago ? " pago" : ""); // BLOCO B-1: classe verde
+  row.className = "cat-item" + (item.pago ? " pago" : "");
   row.style.display = "flex";
   row.style.flexDirection = "column";
   row.style.gap = "8px";
@@ -917,14 +1115,17 @@ function criarCartaoRecente(item, container) {
     ? ` · <span style="color:var(--teal-dark); font-weight:600;">${item.bloco === "Receita" ? "recebido" : "pago"}</span>`
     : ` · <span style="color:var(--brick);">pendente</span>`;
 
-  // BLOCO B-1: chip "agendado" se for mês futuro
   const agendado = ehMesFuturo(item.dataISO)
     ? `<span class="chip-agendado">agendado</span>`
     : "";
 
+  const parcelaTag = item.parcela
+    ? `<span class="tag-parcela">${item.parcela}</span>`
+    : "";
+
   row.innerHTML = `
     <div>
-      <strong class="valor-principal">${item.categoria}</strong> — <strong class="valor-principal">R$ ${formatarMoeda(item.valor)}</strong>${agendado}<br>
+      <strong class="valor-principal">${item.categoria}</strong>${parcelaTag} — <strong class="valor-principal">R$ ${formatarMoeda(item.valor)}</strong>${agendado}<br>
       <span style="font-size:12px; color:var(--ink-soft);">${item.quem} · ${item.bloco} · ${item.data} ${item.hora}${statusTxt}</span>
     </div>
     <div class="row-acoes">
@@ -967,6 +1168,7 @@ async function alternarPago(item, container) {
   }
 }
 
+// Duplicar mantém a mesma lógica do B-1 (à vista), mas propaga parcela vazia
 function duplicarItem(item) {
   resetState();
   state.quem = item.quem;
@@ -975,23 +1177,29 @@ function duplicarItem(item) {
   state.valor = String(item.valor).replace(".", ",");
   state.pago = false;
   state.observacao = item.observacao || "";
-  goToStep(6);
-}
-
-function iniciarEdicao(item) {
-  resetState();
-  state.editingId = item.id;
-  state.editingMeta = { dataISO: item.dataISO, hora: item.hora };
-
-  // BLOCO B-1: reconstrói mesLancamento a partir da data do item
+  state.parcelado = false;
+  // Reconstrói mês-alvo a partir da data original
   const [ano, mesNum] = item.dataISO.split("-").map(Number);
   const hoje = new Date();
   const offset = (ano - hoje.getFullYear()) * 12 + ((mesNum - 1) - hoje.getMonth());
   state.mesLancamento = {
     label: `${MESES_PT[mesNum - 1]} de ${ano}`,
-    ano,
-    mesIndex: mesNum - 1,
-    offset,
+    ano, mesIndex: mesNum - 1, offset,
+  };
+  goToStep(9);
+}
+
+function iniciarEdicao(item) {
+  resetState();
+  state.editingId = item.id;
+  state.editingMeta = { dataISO: item.dataISO, hora: item.hora, parcela: item.parcela || "" };
+
+  const [ano, mesNum] = item.dataISO.split("-").map(Number);
+  const hoje = new Date();
+  const offset = (ano - hoje.getFullYear()) * 12 + ((mesNum - 1) - hoje.getMonth());
+  state.mesLancamento = {
+    label: `${MESES_PT[mesNum - 1]} de ${ano}`,
+    ano, mesIndex: mesNum - 1, offset,
   };
 
   state.quem = item.quem;
@@ -1000,7 +1208,9 @@ function iniciarEdicao(item) {
   state.valor = String(item.valor).replace(".", ",");
   state.pago = !!item.pago;
   state.observacao = item.observacao || "";
-  goToStep(7); // vai direto pra confirmação (pulando os passos 1-6)
+  state.parcelado = item.parcela ? true : false;
+  state.quantidadeParcelas = null; // não usado na edição individual
+  goToStep(9);
 }
 
 async function excluirItem(item, container) {
