@@ -25,6 +25,25 @@ const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
 const LIMITE_RECENTES = 30;
 const MESES_FUTUROS = 12;
 
+// Bloco C: cache em memória de 30s
+const CACHE_TTL_MS = 30 * 1000;
+const cacheMemoria = new Map(); // chave -> { ts, valor }
+
+function cacheGet(chave) {
+  const entry = cacheMemoria.get(chave);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) { cacheMemoria.delete(chave); return null; }
+  return entry.valor;
+}
+function cachePut(chave, valor) {
+  cacheMemoria.set(chave, { ts: Date.now(), valor });
+}
+function cacheInvalida(prefixo) {
+  for (const k of cacheMemoria.keys()) {
+    if (!prefixo || k.startsWith(prefixo)) cacheMemoria.delete(k);
+  }
+}
+
 function mesAtualLabel() {
   const h = new Date();
   return `${MESES_PT[h.getMonth()]} de ${h.getFullYear()}`;
@@ -64,10 +83,7 @@ function montarDataAlvo(mesObj) {
   const ultimoDia = new Date(mesObj.ano, mesObj.mesIndex + 1, 0).getDate();
   const dia = Math.min(diaDesejado, ultimoDia);
   const d = new Date(mesObj.ano, mesObj.mesIndex, dia);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 function gerarDatasParcelas(mesBase, quantidade) {
   const hoje = new Date();
@@ -101,7 +117,7 @@ function calcularParcelas(valorTotal, quantidade) {
 }
 
 // ============================================================
-// Categorias / orçamentos remotos
+// Categorias / orçamentos remotos (Bloco C: 1 fetch só)
 // ============================================================
 let CATEGORIAS_REMOTAS = null;
 let categoriasPromise = null;
@@ -112,12 +128,12 @@ function carregarCategorias() {
   categoriasPromise = (async () => {
     try {
       if (SCRIPT_URL.includes("COLE_AQUI")) return null;
-      const [catRes, orcRes] = await Promise.all([
-        fetch(`${SCRIPT_URL}?categorias=1`).then((r) => r.json()).catch(() => null),
-        fetch(`${SCRIPT_URL}?orcamentos=1`).then((r) => r.json()).catch(() => null),
-      ]);
-      if (catRes && catRes.status === "ok" && catRes.categorias) CATEGORIAS_REMOTAS = catRes.categorias;
-      if (orcRes && orcRes.status === "ok" && orcRes.orcamentos) ORCAMENTOS_REMOTOS = orcRes.orcamentos;
+      const url = `${SCRIPT_URL}?categorias=1&orcamentos=1`;
+      const json = await fetch(url).then((r) => r.json()).catch(() => null);
+      if (json && json.status === "ok") {
+        if (json.categorias) CATEGORIAS_REMOTAS = json.categorias;
+        if (json.orcamentos) ORCAMENTOS_REMOTOS = json.orcamentos;
+      }
     } catch (err) {}
     return CATEGORIAS_REMOTAS;
   })();
@@ -271,14 +287,14 @@ async function fazerBackupAgora() {
   if (!ok) return;
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("App não conectado à planilha.");
-    const json = await fetch(`${SCRIPT_URL}?backup=1`).then((r) => r.json());
+    const json = await fetch(`${SCRIPT_URL}?backup=1`, { keepalive: true }).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "Falha no backup.");
     alert(json.message || "Backup concluído.");
   } catch (err) { alert(`Não deu pra fazer o backup: ${err.message}`); }
 }
 
 // ============================================================
-// Wizard — 1 a 4
+// Wizard
 // ============================================================
 function renderQuem() {
   const el = screenEl(`
@@ -399,9 +415,6 @@ function renderValor() {
   nextBtn.addEventListener("click", () => goToStep(5));
 }
 
-// ============================================================
-// Passo 5 — é parcelado?
-// ============================================================
 function renderParcelado() {
   const el = screenEl(`
     <h2 class="screen-title">É parcelado?</h2>
@@ -424,16 +437,12 @@ function renderParcelado() {
   bn.className = "tile tile-fixa";
   bn.innerHTML = `Não, é à vista<span class="tile-hint">Valor único, cai em um mês só</span>`;
   bn.addEventListener("click", () => {
-    state.parcelado = false;
-    state.quantidadeParcelas = null;
+    state.parcelado = false; state.quantidadeParcelas = null;
     goToStep(7);
   });
   grid.appendChild(bn);
 }
 
-// ============================================================
-// Passo 6 — quantas parcelas?
-// ============================================================
 function renderQuantidadeParcelas() {
   const valorTotal = parseValor(state.valor);
   const el = screenEl(`
@@ -476,14 +485,10 @@ function renderQuantidadeParcelas() {
   nextBtn.addEventListener("click", () => goToStep(7));
 }
 
-// ============================================================
-// Passo 7 — quando
-// ============================================================
 function renderMesLancamento() {
   const isReceita = state.bloco === "Receita";
   const parcelado = state.parcelado === true;
-  const titulo = parcelado
-    ? "Quando vence a primeira parcela?"
+  const titulo = parcelado ? "Quando vence a primeira parcela?"
     : (isReceita ? "Quando você vai receber?" : "Quando é pra pagar?");
   const sub = parcelado
     ? "Normalmente no mês seguinte (fatura do cartão). Escolha conforme o caso."
@@ -521,9 +526,6 @@ function renderMesLancamento() {
   nextBtn.addEventListener("click", () => goToStep(8));
 }
 
-// ============================================================
-// Passo 8 — já foi pago/recebido?
-// ============================================================
 function renderStatus() {
   const isReceita = state.bloco === "Receita";
   const parcelado = state.parcelado === true;
@@ -563,9 +565,6 @@ function renderStatus() {
   grid.appendChild(bn);
 }
 
-// ============================================================
-// Passo 9 — observação + salvar
-// ============================================================
 function renderObservacao() {
   const categoriaLabel = state.categoria === "Outro" ? state.categoriaOutro : state.categoria;
   const valorFormatado = parseValor(state.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
@@ -641,9 +640,9 @@ async function verificarOrcamentoNoLancamento(container, categoriaLabel) {
     const limite = ORCAMENTOS_REMOTOS[`${state.bloco}||${categoriaLabel}`];
     if (!limite) return;
     const mesLabel = state.mesLancamento ? state.mesLancamento.label : mesAtualLabel();
-    const res = await fetch(`${SCRIPT_URL}?mes=${encodeURIComponent(mesLabel)}`).then((r) => r.json());
-    if (!res || res.status !== "ok") return;
-    const linha = (res.linhas || []).find((l) => l.bloco === state.bloco && l.categoria === categoriaLabel);
+    const json = await fetchResumo(mesLabel);
+    if (!json || json.status !== "ok") return;
+    const linha = (json.linhas || []).find((l) => l.bloco === state.bloco && l.categoria === categoriaLabel);
     const jaGasto = linha ? linha.valor : 0;
     const novoTotal = jaGasto + parseValor(state.valor);
     if (novoTotal > limite) {
@@ -692,6 +691,7 @@ async function salvar(button, errorSlot) {
         body: JSON.stringify(payload),
       }).then((r) => r.json());
       if (json.status !== "ok") throw new Error(json.message || "A planilha recusou a alteração.");
+      cacheInvalida(); // Bloco C
       goToStep(10); return;
     }
 
@@ -714,6 +714,7 @@ async function salvar(button, errorSlot) {
         body: JSON.stringify({ action: "criarLote", itens }),
       }).then((r) => r.json());
       if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o parcelamento.");
+      cacheInvalida(); // Bloco C
       goToStep(10); return;
     }
 
@@ -728,6 +729,7 @@ async function salvar(button, errorSlot) {
       body: JSON.stringify(payload),
     }).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o lançamento.");
+    cacheInvalida(); // Bloco C
     goToStep(10);
   } catch (err) {
     errorSlot.innerHTML = `<div class="error-banner">Não deu pra salvar: ${err.message}</div>`;
@@ -761,6 +763,39 @@ function renderSucesso() {
 }
 
 // ============================================================
+// Fetch com cache (Bloco C)
+// ============================================================
+async function fetchResumo(mesLabel) {
+  const chave = `resumo::${mesLabel}`;
+  const cache = cacheGet(chave);
+  if (cache) return cache;
+
+  const json = await fetch(`${SCRIPT_URL}?mes=${encodeURIComponent(mesLabel)}`).then((r) => r.json());
+  if (json && json.status === "ok") cachePut(chave, json);
+  return json;
+}
+
+async function fetchRecentes(opts) {
+  const o = opts || {};
+  const limite = o.limite || LIMITE_RECENTES;
+  const mes    = o.mes || "";
+  const busca  = o.busca || "";
+  const chave = `recentes::${limite}::${mes}::${busca}`;
+
+  const cache = cacheGet(chave);
+  if (cache) return cache;
+
+  let url = `${SCRIPT_URL}?recentes=1&limite=${limite}`;
+  if (mes && mes !== "todos") url += `&mesFiltro=${encodeURIComponent(mes)}`;
+  if (busca) url += `&busca=${encodeURIComponent(busca)}`;
+  const json = await fetch(url).then((r) => r.json());
+  if (json.status !== "ok") throw new Error(json.message || "Falha ao consultar lançamentos.");
+  const itens = json.itens || [];
+  cachePut(chave, itens);
+  return itens;
+}
+
+// ============================================================
 // Resumo
 // ============================================================
 function renderResumo() {
@@ -791,8 +826,8 @@ async function carregarResumo(container, mesLabel) {
   container.innerHTML = `<div class="resumo-loading"><span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span> &nbsp; Carregando...</div>`;
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
-    const json = await fetch(`${SCRIPT_URL}?mes=${encodeURIComponent(mesLabel)}`).then((r) => r.json());
-    if (json.status !== "ok") throw new Error(json.message || "Falha ao consultar.");
+    const json = await fetchResumo(mesLabel);
+    if (!json || json.status !== "ok") throw new Error((json && json.message) || "Falha ao consultar.");
     renderResumoResultado(container, json);
   } catch (err) {
     container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
@@ -862,41 +897,7 @@ function renderResumoResultado(container, d) {
 }
 
 // ============================================================
-// Fetch de Recentes
-// ============================================================
-async function fetchRecentes(opts) {
-  const o = opts || {};
-  const limite = o.limite || LIMITE_RECENTES;
-  const mes    = o.mes || "";
-  const busca  = o.busca || "";
-  let url = `${SCRIPT_URL}?recentes=1&limite=${limite}`;
-  if (mes && mes !== "todos") url += `&mesFiltro=${encodeURIComponent(mes)}`;
-  if (busca) url += `&busca=${encodeURIComponent(busca)}`;
-  const json = await fetch(url).then((r) => r.json());
-  if (json.status !== "ok") throw new Error(json.message || "Falha ao consultar lançamentos.");
-  return json.itens || [];
-}
-
-// BLOCO B-2.5: agrupa parcelas irmãs pelo par (bloco, categoria, qtdTotal) + data da primeira
-function encontrarIrmaos(item, todosItens) {
-  if (!item.parcela) return [];
-  const match = /^(\d+)\/(\d+)$/.exec(item.parcela);
-  if (!match) return [];
-  const total = parseInt(match[2], 10);
-  return todosItens.filter((o) => {
-    if (!o.parcela) return false;
-    const m = /^(\d+)\/(\d+)$/.exec(o.parcela);
-    if (!m) return false;
-    if (parseInt(m[2], 10) !== total) return false;
-    if (o.bloco !== item.bloco) return false;
-    if (o.categoria !== item.categoria) return false;
-    if (o.quem !== item.quem) return false;
-    return true;
-  });
-}
-
-// ============================================================
-// Tela de Recentes
+// Recentes
 // ============================================================
 function renderRecentes() {
   const el = screenEl(`
@@ -1006,7 +1007,7 @@ function criarCartaoRecente(item, todosItens, container) {
 }
 
 // ============================================================
-// Ações
+// Ações dos Recentes
 // ============================================================
 async function alternarPago(item, container) {
   const novoPago = !item.pago;
@@ -1016,6 +1017,7 @@ async function alternarPago(item, container) {
       body: JSON.stringify({ action: "marcarPago", id: item.id, pago: novoPago ? "Sim" : "Não" }),
     }).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "Falha ao atualizar.");
+    cacheInvalida();
     carregarRecentes(container);
   } catch (err) { alert(`Não deu pra atualizar: ${err.message}`); }
 }
@@ -1055,14 +1057,26 @@ function iniciarEdicao(item) {
   goToStep(9);
 }
 
-// BLOCO B-2.5: exclusão com detecção de grupo
+function encontrarIrmaos(item, todosItens) {
+  if (!item.parcela) return [];
+  const match = /^(\d+)\/(\d+)$/.exec(item.parcela);
+  if (!match) return [];
+  const total = parseInt(match[2], 10);
+  return todosItens.filter((o) => {
+    if (!o.parcela) return false;
+    const m = /^(\d+)\/(\d+)$/.exec(o.parcela);
+    if (!m) return false;
+    if (parseInt(m[2], 10) !== total) return false;
+    if (o.bloco !== item.bloco) return false;
+    if (o.categoria !== item.categoria) return false;
+    if (o.quem !== item.quem) return false;
+    return true;
+  });
+}
+
 function excluirItem(item, todosItens, container) {
   const irmaos = encontrarIrmaos(item, todosItens);
-
-  if (irmaos.length <= 1) {
-    excluirUmaSo_(item, container);
-    return;
-  }
+  if (irmaos.length <= 1) { excluirUmaSo_(item, container); return; }
 
   const pagos = irmaos.filter((i) => i.pago);
   const pendentes = irmaos.filter((i) => !i.pago);
@@ -1099,14 +1113,9 @@ function excluirItem(item, todosItens, container) {
     </div>
   `;
   document.body.appendChild(overlay);
-
   function fechar() { overlay.remove(); }
-
   overlay.querySelector('[data-op="uma"]').addEventListener("click", () => { fechar(); excluirUmaSo_(item, container); });
-  overlay.querySelector('[data-op="todas"]').addEventListener("click", () => {
-    fechar();
-    excluirLote_(pendentes, container);
-  });
+  overlay.querySelector('[data-op="todas"]').addEventListener("click", () => { fechar(); excluirLote_(pendentes, container); });
   overlay.querySelector('[data-op="cancelar"]').addEventListener("click", fechar);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
 }
@@ -1120,6 +1129,7 @@ async function excluirUmaSo_(item, container) {
       body: JSON.stringify({ action: "excluir", id: item.id }),
     }).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "Falha ao excluir.");
+    cacheInvalida();
     carregarRecentes(container);
   } catch (err) { alert(`Não deu pra excluir: ${err.message}`); }
 }
@@ -1132,6 +1142,7 @@ async function excluirLote_(itens, container) {
       body: JSON.stringify({ action: "excluirLote", ids }),
     }).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "Falha ao excluir.");
+    cacheInvalida();
     carregarRecentes(container);
   } catch (err) { alert(`Não deu pra excluir: ${err.message}`); }
 }
