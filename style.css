@@ -730,3 +730,61 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   color: var(--ink-soft);
 }
 .mes-opcao.selected .mes-tag { color: var(--teal-dark); }
+
+/* ---------- BLOCO B-2: parcelamento ---------- */
+
+/* Tag de parcela no card de Recentes e nas linhas do Resumo */
+.tag-parcela {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--teal-dark);
+  background: var(--teal-tint);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Contador de parcelas (1x, 2x, ...) */
+.parcelas-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.parcela-btn {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 14px 8px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  color: var(--ink);
+  text-align: center;
+  min-height: 44px;
+}
+
+.parcela-btn:active { transform: scale(0.97); }
+
+.parcela-btn.selected {
+  border-color: var(--teal);
+  background: var(--teal-tint);
+  color: var(--teal-dark);
+}
+
+/* Resumo do parcelamento (ex: "6x de R$ 200,00") */
+.parcela-resumo {
+  border: 1px solid var(--teal);
+  background: var(--teal-tint);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--teal-dark);
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.parcela-resumo strong { font-weight: 700; }
