@@ -25,6 +25,9 @@ const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
 const LIMITE_RECENTES = 30;
 const MESES_FUTUROS = 12;
 
+// Threshold do skeleton: só aparece se a requisição demorar mais que isso
+const SKELETON_DELAY_MS = 150;
+
 // Cache em memória (Bloco C)
 const CACHE_TTL_MS = 30 * 1000;
 const cacheMemoria = new Map();
@@ -117,6 +120,100 @@ function calcularParcelas(valorTotal, quantidade) {
 }
 
 // ============================================================
+// SKELETON HELPERS
+// ============================================================
+
+/**
+ * Orquestra o "delay threshold": só mostra o skeleton se o fetch
+ * demorar mais que SKELETON_DELAY_MS. Se for mais rápido, o usuário
+ * vê o conteúdo direto (sem piscada).
+ *
+ * @param {HTMLElement} container   onde o conteúdo vai morar
+ * @param {Function}    htmlSkeleton  () => string de HTML do skeleton
+ * @param {Function}    fetchFn       () => Promise que traz os dados
+ * @param {Function}    renderFn      (dados) => string de HTML do conteúdo real
+ */
+async function comSkeleton(container, htmlSkeleton, fetchFn, renderFn) {
+  let skeletonMostrado = false;
+  const timer = setTimeout(() => {
+    skeletonMostrado = true;
+    container.innerHTML = htmlSkeleton();
+  }, SKELETON_DELAY_MS);
+
+  try {
+    const dados = await fetchFn();
+    clearTimeout(timer);
+    container.innerHTML = renderFn(dados);
+  } catch (err) {
+    clearTimeout(timer);
+    // Em caso de erro, mostra o erro independentemente do skeleton
+    container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
+  }
+}
+
+/** Skeleton de um cartão de lançamento (usado na lista de Recentes) */
+function htmlSkeletonCartoes(n) {
+  let html = "";
+  for (let i = 0; i < (n || 5); i++) {
+    html += `
+      <div class="skeleton-card">
+        <div class="linha-1">
+          <div class="skeleton titulo"></div>
+          <div class="skeleton valor"></div>
+        </div>
+        <div class="linha-2">
+          <div class="skeleton meta"></div>
+        </div>
+        <div class="linha-3">
+          <div class="skeleton acao"></div>
+          <div class="skeleton acao"></div>
+        </div>
+      </div>
+    `;
+  }
+  return `<div class="cat-list">${html}</div>`;
+}
+
+/** Skeleton de botão de categoria (usado no wizard) */
+function htmlSkeletonCategorias(n) {
+  let html = "";
+  for (let i = 0; i < (n || 6); i++) {
+    html += `<div class="skeleton-cat"><div class="skeleton cat-nome"></div></div>`;
+  }
+  return `<div class="cat-list">${html}</div>`;
+}
+
+/** Skeleton completo da tela de Resumo */
+function htmlSkeletonResumo() {
+  let linhas = "";
+  for (let i = 0; i < 6; i++) {
+    linhas += `
+      <div class="skeleton-linha">
+        <div class="skeleton nome"></div>
+        <div class="skeleton val"></div>
+      </div>
+    `;
+  }
+  return `
+    <div class="skeleton-resumo-topo">
+      <div class="skeleton-card-grande">
+        <div class="skeleton label"></div>
+        <div class="skeleton valor"></div>
+      </div>
+      <div class="skeleton-card-grande">
+        <div class="skeleton label"></div>
+        <div class="skeleton valor"></div>
+      </div>
+    </div>
+    <div class="skeleton-chips">
+      <div class="skeleton chip-skeleton"></div>
+    </div>
+    <div class="skeleton-bloco-titulo skeleton"></div>
+    ${linhas}
+  `;
+}
+
+// ============================================================
 // Categorias / orçamentos remotos
 // ============================================================
 let CATEGORIAS_REMOTAS = null;
@@ -159,11 +256,8 @@ const state = {
   pago: null, observacao: "",
   resumoMes: null,
   editingId: null, editingMeta: null,
-
-  // BLOCO B-3: modo de edição em lote
-  editingEscopo: null,        // null | "uma" | "todas" | "estaEFuturas" | "cancelarRestante"
-  editingIds: null,           // array de IDs que serão afetados
-
+  editingEscopo: null,
+  editingIds: null,
   recentesMes: "todos", recentesBusca: "", recentesIniciado: false,
 };
 const TOTAL_STEPS = 8;
@@ -171,9 +265,8 @@ const TOTAL_STEPS = 8;
 const screenWrap = document.getElementById("screenWrap");
 const backBtn = document.getElementById("backBtn");
 const progressEl = document.getElementById("progress");
-const casaBtn = document.getElementById("casaBtn"); // BLOCO B-3: substitui o antigo resumoBtn
+const casaBtn = document.getElementById("casaBtn");
 
-// BLOCO B-3: botão de casa no header
 if (casaBtn) {
   casaBtn.addEventListener("click", () => {
     if (state.screen === "wizard" && state.step < 10) {
@@ -220,7 +313,6 @@ function updateProgress() {
     dot.classList.toggle("done",   isWizard && n < state.step);
   });
   backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 9);
-  // BLOCO B-3: casa desabilitada na home
   if (casaBtn) casaBtn.disabled = state.screen === "home";
 }
 
@@ -352,12 +444,12 @@ function renderBloco() {
 }
 
 function renderCategoria() {
+  // Skeleton só se ainda não temos as categorias em memória
   if (!CATEGORIAS_REMOTAS && !SCRIPT_URL.includes("COLE_AQUI")) {
-    screenEl(`
-      <div class="resumo-loading">
-        <span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span>
-        &nbsp; Carregando categorias...
-      </div>
+    const el = screenEl(`
+      <h2 class="screen-title">Qual categoria?</h2>
+      <p class="screen-sub">Bloco: <strong>${state.bloco}</strong></p>
+      <div id="catSkeletonWrap">${htmlSkeletonCategorias(6)}</div>
     `);
     carregarCategorias().then(() => {
       if (state.screen === "wizard" && state.step === 3) render();
@@ -554,7 +646,6 @@ function renderStatus() {
   const nao = isReceita ? "Ainda não" : "Ainda não paguei";
   const futuro = state.mesLancamento && state.mesLancamento.offset > 0;
 
-  // BLOCO B-3: em edição em lote, avisa que o "pago" será aplicado a todas
   let aviso = "";
   if (state.editingEscopo && (state.editingEscopo === "todas" || state.editingEscopo === "estaEFuturas")) {
     aviso = `<div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
@@ -615,7 +706,6 @@ function renderObservacao() {
     parcelaTag = `<span class="chip"><strong>${detalhe}</strong></span>`;
   }
 
-  // BLOCO B-3: mostra o escopo se for edição em lote
   let escopoTag = "";
   if (state.editingEscopo && state.editingIds) {
     const mapEscopo = {
@@ -702,7 +792,7 @@ async function verificarOrcamentoNoLancamento(container, categoriaLabel) {
 }
 
 // ============================================================
-// Salvar (individual, lote, à vista, parcelado, edição em escopo)
+// Salvar
 // ============================================================
 async function salvar(button, errorSlot) {
   errorSlot.innerHTML = "";
@@ -717,7 +807,6 @@ async function salvar(button, errorSlot) {
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
 
-    // ---------- Edição em lote (BLOCO B-3) ----------
     if (state.editingEscopo && state.editingIds && state.editingIds.length > 0) {
       if (state.editingEscopo === "cancelarRestante") {
         const json = await fetch(SCRIPT_URL, {
@@ -729,7 +818,6 @@ async function salvar(button, errorSlot) {
         goToStep(10); return;
       }
 
-      // "todas" ou "estaEFuturas": edita os IDs com os valores do wizard
       const payload = {
         action: "editarLote",
         ids: state.editingIds,
@@ -749,7 +837,6 @@ async function salvar(button, errorSlot) {
       goToStep(10); return;
     }
 
-    // ---------- Edição individual (id único, veio do "só esta") ----------
     if (state.editingId) {
       const dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : state.editingMeta.dataISO;
       const payload = {
@@ -767,7 +854,6 @@ async function salvar(button, errorSlot) {
       goToStep(10); return;
     }
 
-    // ---------- Criação parcelada ----------
     if (state.parcelado && state.quantidadeParcelas > 1) {
       const valorTotal = parseValor(state.valor);
       const valores = calcularParcelas(valorTotal, state.quantidadeParcelas);
@@ -791,7 +877,6 @@ async function salvar(button, errorSlot) {
       goToStep(10); return;
     }
 
-    // ---------- Criação à vista ----------
     const dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : now.toISOString().split("T")[0];
     const payload = {
       data: dataISO, hora, quem: state.quem, bloco: state.bloco,
@@ -898,19 +983,30 @@ function renderResumo() {
   instalarBotaoTopo();
 }
 
-async function carregarResumo(container, mesLabel) {
-  container.innerHTML = `<div class="resumo-loading"><span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span> &nbsp; Carregando...</div>`;
-  try {
-    if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
-    const json = await fetchResumo(mesLabel);
-    if (!json || json.status !== "ok") throw new Error((json && json.message) || "Falha ao consultar.");
-    renderResumoResultado(container, json);
-  } catch (err) {
-    container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
-  }
+function carregarResumo(container, mesLabel) {
+  // Bloco novo: skeleton com delay threshold
+  return comSkeleton(
+    container,
+    () => htmlSkeletonResumo(),
+    () => {
+      if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
+      return fetchResumo(mesLabel).then((json) => {
+        if (!json || json.status !== "ok") throw new Error((json && json.message) || "Falha ao consultar.");
+        return json;
+      });
+    },
+    (json) => {
+      // renderResumoResultado devolve string ao invés de escrever no DOM
+      return gerarHtmlResumoResultado(json);
+    }
+  );
 }
 
-function renderResumoResultado(container, d) {
+/**
+ * Versão "pura" de renderResumoResultado: devolve string em vez de
+ * escrever no container. Necessária pro skeleton orquestrar a troca.
+ */
+function gerarHtmlResumoResultado(d) {
   const saldoPos = d.saldo >= 0;
   const saldoRealPos = (d.saldoReal ?? d.saldo) >= 0;
 
@@ -969,7 +1065,7 @@ function renderResumoResultado(container, d) {
     });
     html += `</div>`;
   }
-  container.innerHTML = html;
+  return html;
 }
 
 // ============================================================
@@ -1027,25 +1123,39 @@ function renderRecentes() {
   instalarBotaoTopo();
 }
 
-async function carregarRecentes(container) {
-  container.innerHTML = `<div class="resumo-loading"><span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span> &nbsp; Carregando...</div>`;
-  try {
-    if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
-    const itens = await fetchRecentes({
-      limite: LIMITE_RECENTES, mes: state.recentesMes, busca: state.recentesBusca,
-    });
-    if (itens.length === 0) {
-      container.innerHTML = `<p class="sem-resultado">Nenhum lançamento encontrado com esses filtros.</p>`;
-      return;
+function carregarRecentes(container) {
+  // Bloco novo: skeleton com delay threshold
+  return comSkeleton(
+    container,
+    () => htmlSkeletonCartoes(5),
+    () => {
+      if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
+      return fetchRecentes({
+        limite: LIMITE_RECENTES, mes: state.recentesMes, busca: state.recentesBusca,
+      });
+    },
+    (itens) => {
+      if (itens.length === 0) {
+        return `<p class="sem-resultado">Nenhum lançamento encontrado com esses filtros.</p>`;
+      }
+      // Precisa construir com DOM pra poder adicionar os event listeners.
+      // Devolve um placeholder e usa um queueMicrotask pra popular depois.
+      const wrap = document.createElement("div");
+      wrap.className = "cat-list";
+      itens.forEach((item) => wrap.appendChild(criarCartaoRecente(item, itens, container)));
+      queueMicrotask(() => {
+        const target = container.querySelector(".cat-list");
+        if (target) {
+          target.replaceWith(wrap);
+        } else {
+          container.innerHTML = "";
+          container.appendChild(wrap);
+        }
+      });
+      // Devolve string vazia — o queueMicrotask popula o DOM de verdade
+      return `<div class="cat-list"></div>`;
     }
-    container.innerHTML = "";
-    const list = document.createElement("div");
-    list.className = "cat-list";
-    itens.forEach((item) => list.appendChild(criarCartaoRecente(item, itens, container)));
-    container.appendChild(list);
-  } catch (err) {
-    container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
-  }
+  );
 }
 
 function criarCartaoRecente(item, todosItens, container) {
@@ -1114,15 +1224,9 @@ function duplicarItem(item) {
   goToStep(9);
 }
 
-/**
- * BLOCO B-3: iniciar edição agora decide escopo.
- * Se for lançamento avulso (sem parcela), comportamento antigo: edita só ele.
- * Se for parcela, abre modal com 4 opções.
- */
 function iniciarEdicao(item, todosItens) {
   const temParcela = !!item.parcela;
   if (!temParcela) {
-    // Avulso: comportamento antigo
     editarAvulso_(item);
     return;
   }
@@ -1148,12 +1252,7 @@ function editarAvulso_(item) {
   goToStep(9);
 }
 
-/**
- * BLOCO B-3: modal de escopo da edição de parcelamento.
- * Coleta as parcelas irmãs por GrupoID e ordena por número de parcela.
- */
 function abrirModalEscopoEdicao(item, todosItens) {
-  // Todas as parcelas do mesmo grupo, ordenadas pelo número "x/N"
   const irmaos = todosItens
     .filter((o) => o.grupoId && o.grupoId === item.grupoId && o.parcela)
     .sort((a, b) => {
@@ -1163,7 +1262,6 @@ function abrirModalEscopoEdicao(item, todosItens) {
     });
 
   if (irmaos.length <= 1) {
-    // Grupo de uma parcela só — trata como avulso
     editarAvulso_(item);
     return;
   }
@@ -1244,15 +1342,10 @@ function abrirModalEscopoEdicao(item, todosItens) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
 }
 
-/**
- * BLOCO B-3: abre o wizard pra editar em lote.
- * Pré-preenche com os dados atuais do item clicado.
- */
 function abrirWizardEdicaoLote_(item, ids, escopo) {
   resetState();
   state.editingEscopo = escopo;
   state.editingIds = ids;
-  // Guarda também o id principal (o que foi clicado) como referência
   state.editingId = (escopo === "estaEFuturas" || escopo === "todas") ? item.id : null;
 
   const [ano, mesNum] = item.dataISO.split("-").map(Number);
@@ -1269,17 +1362,14 @@ function abrirWizardEdicaoLote_(item, ids, escopo) {
   state.parcelado = true;
   state.quantidadeParcelas = null;
 
-  // Vai direto pra confirmação (passo 9), já que tudo está preenchido
   goToStep(9);
 }
 
 function encontrarIrmaos(item, todosItens) {
   if (!item.parcela) return [];
   if (item.grupoId) {
-    // BLOCO B-3: agrupa por GrupoID
     return todosItens.filter((o) => o.grupoId === item.grupoId && o.parcela);
   }
-  // Fallback (parcelas antigas sem GrupoID): heurística do B-2.5
   const match = /^(\d+)\/(\d+)$/.exec(item.parcela);
   if (!match) return [];
   const total = parseInt(match[2], 10);
