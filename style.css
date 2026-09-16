@@ -663,3 +663,70 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 
 /* Ajuste de toque: botões do wizard também 44px */
 .tile-backup .tile-hint { color: var(--ink-soft); }
+
+/* ---------- BLOCO B-1: pago/recebido em verde + agendado ---------- */
+
+/* Card inteiro de um lançamento pago/recebido fica esverdeado */
+.cat-item.pago {
+  border-color: var(--teal);
+  background: var(--teal-tint);
+}
+
+/* Valor em verde discreto dentro do card pago */
+.cat-item.pago strong.valor-principal {
+  color: var(--teal-dark);
+}
+
+/* Chip pequeno "agendado" pra lançamentos com data futura */
+.chip-agendado {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gold);
+  background: var(--gold-tint);
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Passo novo: escolher mês do lançamento */
+.mes-opcoes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.mes-opcao {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+  font-family: var(--font-body);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mes-opcao:active { transform: scale(0.99); }
+
+.mes-opcao.selected {
+  border-color: var(--teal);
+  background: var(--teal-tint);
+}
+
+.mes-opcao .mes-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.mes-opcao.selected .mes-tag { color: var(--teal-dark); }
