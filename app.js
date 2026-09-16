@@ -25,9 +25,9 @@ const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
 const LIMITE_RECENTES = 30;
 const MESES_FUTUROS = 12;
 
-// Bloco C: cache em memória de 30s
+// Cache em memória (Bloco C)
 const CACHE_TTL_MS = 30 * 1000;
-const cacheMemoria = new Map(); // chave -> { ts, valor }
+const cacheMemoria = new Map();
 
 function cacheGet(chave) {
   const entry = cacheMemoria.get(chave);
@@ -117,7 +117,7 @@ function calcularParcelas(valorTotal, quantidade) {
 }
 
 // ============================================================
-// Categorias / orçamentos remotos (Bloco C: 1 fetch só)
+// Categorias / orçamentos remotos
 // ============================================================
 let CATEGORIAS_REMOTAS = null;
 let categoriasPromise = null;
@@ -159,6 +159,11 @@ const state = {
   pago: null, observacao: "",
   resumoMes: null,
   editingId: null, editingMeta: null,
+
+  // BLOCO B-3: modo de edição em lote
+  editingEscopo: null,        // null | "uma" | "todas" | "estaEFuturas" | "cancelarRestante"
+  editingIds: null,           // array de IDs que serão afetados
+
   recentesMes: "todos", recentesBusca: "", recentesIniciado: false,
 };
 const TOTAL_STEPS = 8;
@@ -166,9 +171,20 @@ const TOTAL_STEPS = 8;
 const screenWrap = document.getElementById("screenWrap");
 const backBtn = document.getElementById("backBtn");
 const progressEl = document.getElementById("progress");
-const resumoBtn = document.getElementById("resumoBtn");
+const casaBtn = document.getElementById("casaBtn"); // BLOCO B-3: substitui o antigo resumoBtn
 
-resumoBtn.addEventListener("click", () => goResumo());
+// BLOCO B-3: botão de casa no header
+if (casaBtn) {
+  casaBtn.addEventListener("click", () => {
+    if (state.screen === "wizard" && state.step < 10) {
+      const ok = window.confirm("Descartar este lançamento e voltar ao início?");
+      if (!ok) return;
+    }
+    resetState();
+    goHome();
+  });
+}
+
 backBtn.addEventListener("click", () => {
   if (state.screen === "wizard") {
     if (state.step <= 1) goHome();
@@ -186,6 +202,8 @@ function resetState() {
   state.mesLancamento = null;
   state.pago = null; state.observacao = "";
   state.editingId = null; state.editingMeta = null;
+  state.editingEscopo = null;
+  state.editingIds = null;
 }
 
 function goHome()       { state.screen = "home"; render(); }
@@ -202,6 +220,8 @@ function updateProgress() {
     dot.classList.toggle("done",   isWizard && n < state.step);
   });
   backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 9);
+  // BLOCO B-3: casa desabilitada na home
+  if (casaBtn) casaBtn.disabled = state.screen === "home";
 }
 
 function render() {
@@ -534,8 +554,13 @@ function renderStatus() {
   const nao = isReceita ? "Ainda não" : "Ainda não paguei";
   const futuro = state.mesLancamento && state.mesLancamento.offset > 0;
 
+  // BLOCO B-3: em edição em lote, avisa que o "pago" será aplicado a todas
   let aviso = "";
-  if (parcelado) {
+  if (state.editingEscopo && (state.editingEscopo === "todas" || state.editingEscopo === "estaEFuturas")) {
+    aviso = `<div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
+      Você está editando <strong>${state.editingIds ? state.editingIds.length : ""} parcelas</strong> em grupo. O status abaixo será aplicado a <strong>todas</strong>.
+    </div>`;
+  } else if (parcelado) {
     aviso = `<div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
       No parcelamento, as parcelas futuras entram automaticamente como <strong>pendentes</strong>. Só a primeira usa a resposta abaixo.
     </div>`;
@@ -574,6 +599,7 @@ function renderObservacao() {
     : (isReceita ? "A receber" : "Pendente");
   const titulo = state.editingId ? "Confirmar alterações" : "Confirmar lançamento";
   const botao  = state.editingId ? "Salvar alterações" : "Salvar lançamento";
+
   const mesLabel = state.mesLancamento ? state.mesLancamento.label : mesAtualLabel();
   const mesTag = state.mesLancamento && state.mesLancamento.offset > 0
     ? ` · <em style="color: var(--gold);">${mesLabel}</em>` : "";
@@ -589,6 +615,18 @@ function renderObservacao() {
     parcelaTag = `<span class="chip"><strong>${detalhe}</strong></span>`;
   }
 
+  // BLOCO B-3: mostra o escopo se for edição em lote
+  let escopoTag = "";
+  if (state.editingEscopo && state.editingIds) {
+    const mapEscopo = {
+      "uma": "Só esta parcela",
+      "todas": `Todas as ${state.editingIds.length} parcelas`,
+      "estaEFuturas": `Esta e as ${state.editingIds.length - 1} seguintes`,
+      "cancelarRestante": `Cancelar daqui pra frente (${state.editingIds.length} parcelas)`,
+    };
+    escopoTag = `<span class="chip" style="background: var(--gold-tint); border-color: var(--gold);"><strong>${mapEscopo[state.editingEscopo]}</strong></span>`;
+  }
+
   const el = screenEl(`
     <h2 class="screen-title">${titulo}</h2>
     <div class="summary">
@@ -597,6 +635,7 @@ function renderObservacao() {
       <span class="chip">${categoriaLabel}</span>
       <span class="chip"><strong>R$ ${valorFormatado}</strong></span>
       ${parcelaTag}
+      ${escopoTag}
       <span class="chip">${statusLabel}${mesTag}</span>
     </div>
     <div id="duplicadoSlot"></div>
@@ -614,7 +653,7 @@ function renderObservacao() {
   btn.addEventListener("click", () => salvar(btn, errSlot));
 
   if (!state.editingId) verificarPossivelDuplicado(el.querySelector("#duplicadoSlot"), categoriaLabel);
-  verificarOrcamentoNoLancamento(el.querySelector("#orcamentoSlot"), categoriaLabel);
+  if (!state.editingId) verificarOrcamentoNoLancamento(el.querySelector("#orcamentoSlot"), categoriaLabel);
 }
 
 async function verificarPossivelDuplicado(container, categoriaLabel) {
@@ -663,7 +702,7 @@ async function verificarOrcamentoNoLancamento(container, categoriaLabel) {
 }
 
 // ============================================================
-// Salvar
+// Salvar (individual, lote, à vista, parcelado, edição em escopo)
 // ============================================================
 async function salvar(button, errorSlot) {
   errorSlot.innerHTML = "";
@@ -678,6 +717,39 @@ async function salvar(button, errorSlot) {
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
 
+    // ---------- Edição em lote (BLOCO B-3) ----------
+    if (state.editingEscopo && state.editingIds && state.editingIds.length > 0) {
+      if (state.editingEscopo === "cancelarRestante") {
+        const json = await fetch(SCRIPT_URL, {
+          method: "POST", headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify({ action: "cancelarParcelamento", ids: state.editingIds }),
+        }).then((r) => r.json());
+        if (json.status !== "ok") throw new Error(json.message || "Falha ao cancelar parcelamento.");
+        cacheInvalida();
+        goToStep(10); return;
+      }
+
+      // "todas" ou "estaEFuturas": edita os IDs com os valores do wizard
+      const payload = {
+        action: "editarLote",
+        ids: state.editingIds,
+        quem: state.quem,
+        bloco: state.bloco,
+        categoria: categoriaFinal,
+        valor: parseValor(state.valor),
+        pago: state.pago ? "Sim" : "Não",
+        observacao: state.observacao,
+      };
+      const json = await fetch(SCRIPT_URL, {
+        method: "POST", headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(payload),
+      }).then((r) => r.json());
+      if (json.status !== "ok") throw new Error(json.message || "Falha ao editar em lote.");
+      cacheInvalida();
+      goToStep(10); return;
+    }
+
+    // ---------- Edição individual (id único, veio do "só esta") ----------
     if (state.editingId) {
       const dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : state.editingMeta.dataISO;
       const payload = {
@@ -691,10 +763,11 @@ async function salvar(button, errorSlot) {
         body: JSON.stringify(payload),
       }).then((r) => r.json());
       if (json.status !== "ok") throw new Error(json.message || "A planilha recusou a alteração.");
-      cacheInvalida(); // Bloco C
+      cacheInvalida();
       goToStep(10); return;
     }
 
+    // ---------- Criação parcelada ----------
     if (state.parcelado && state.quantidadeParcelas > 1) {
       const valorTotal = parseValor(state.valor);
       const valores = calcularParcelas(valorTotal, state.quantidadeParcelas);
@@ -714,10 +787,11 @@ async function salvar(button, errorSlot) {
         body: JSON.stringify({ action: "criarLote", itens }),
       }).then((r) => r.json());
       if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o parcelamento.");
-      cacheInvalida(); // Bloco C
+      cacheInvalida();
       goToStep(10); return;
     }
 
+    // ---------- Criação à vista ----------
     const dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : now.toISOString().split("T")[0];
     const payload = {
       data: dataISO, hora, quem: state.quem, bloco: state.bloco,
@@ -729,7 +803,7 @@ async function salvar(button, errorSlot) {
       body: JSON.stringify(payload),
     }).then((r) => r.json());
     if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o lançamento.");
-    cacheInvalida(); // Bloco C
+    cacheInvalida();
     goToStep(10);
   } catch (err) {
     errorSlot.innerHTML = `<div class="error-banner">Não deu pra salvar: ${err.message}</div>`;
@@ -739,13 +813,15 @@ async function salvar(button, errorSlot) {
 }
 
 function renderSucesso() {
-  const foiEdicao = !!state.editingId;
+  const foiEdicao = !!state.editingId || !!state.editingEscopo;
   const foiParcelado = state.parcelado && state.quantidadeParcelas > 1;
-  const titulo = foiEdicao ? "Lançamento atualizado!"
-    : (foiParcelado ? "Parcelamento salvo!" : "Lançamento salvo!");
-  const detalhe = foiParcelado
-    ? `${state.quantidadeParcelas} parcelas foram criadas, uma por mês.`
-    : "Já foi direto pra planilha.";
+  const foiCancelamento = state.editingEscopo === "cancelarRestante";
+
+  let titulo = "Lançamento salvo!";
+  let detalhe = "Já foi direto pra planilha.";
+  if (foiCancelamento) { titulo = "Parcelamento cancelado"; detalhe = "As parcelas restantes viraram lançamentos normais."; }
+  else if (foiEdicao) { titulo = "Lançamento atualizado!"; detalhe = "As alterações já foram pra planilha."; }
+  else if (foiParcelado) { titulo = "Parcelamento salvo!"; detalhe = `${state.quantidadeParcelas} parcelas foram criadas, uma por mês.`; }
 
   const el = screenEl(`
     <div class="success-wrap">
@@ -1001,7 +1077,7 @@ function criarCartaoRecente(item, todosItens, container) {
   `;
   row.querySelector('[data-acao="pago"]').addEventListener("click", () => alternarPago(item, container));
   row.querySelector('[data-acao="duplicar"]').addEventListener("click", () => duplicarItem(item));
-  row.querySelector('[data-acao="editar"]').addEventListener("click", () => iniciarEdicao(item));
+  row.querySelector('[data-acao="editar"]').addEventListener("click", () => iniciarEdicao(item, todosItens));
   row.querySelector('[data-acao="excluir"]').addEventListener("click", () => excluirItem(item, todosItens, container));
   return row;
 }
@@ -1038,7 +1114,22 @@ function duplicarItem(item) {
   goToStep(9);
 }
 
-function iniciarEdicao(item) {
+/**
+ * BLOCO B-3: iniciar edição agora decide escopo.
+ * Se for lançamento avulso (sem parcela), comportamento antigo: edita só ele.
+ * Se for parcela, abre modal com 4 opções.
+ */
+function iniciarEdicao(item, todosItens) {
+  const temParcela = !!item.parcela;
+  if (!temParcela) {
+    // Avulso: comportamento antigo
+    editarAvulso_(item);
+    return;
+  }
+  abrirModalEscopoEdicao(item, todosItens);
+}
+
+function editarAvulso_(item) {
   resetState();
   state.editingId = item.id;
   state.editingMeta = { dataISO: item.dataISO, hora: item.hora, parcela: item.parcela || "" };
@@ -1052,13 +1143,143 @@ function iniciarEdicao(item) {
   state.valor = String(item.valor).replace(".", ",");
   state.pago = !!item.pago;
   state.observacao = item.observacao || "";
-  state.parcelado = item.parcela ? true : false;
+  state.parcelado = false;
   state.quantidadeParcelas = null;
+  goToStep(9);
+}
+
+/**
+ * BLOCO B-3: modal de escopo da edição de parcelamento.
+ * Coleta as parcelas irmãs por GrupoID e ordena por número de parcela.
+ */
+function abrirModalEscopoEdicao(item, todosItens) {
+  // Todas as parcelas do mesmo grupo, ordenadas pelo número "x/N"
+  const irmaos = todosItens
+    .filter((o) => o.grupoId && o.grupoId === item.grupoId && o.parcela)
+    .sort((a, b) => {
+      const na = parseInt(a.parcela.split("/")[0], 10);
+      const nb = parseInt(b.parcela.split("/")[0], 10);
+      return na - nb;
+    });
+
+  if (irmaos.length <= 1) {
+    // Grupo de uma parcela só — trata como avulso
+    editarAvulso_(item);
+    return;
+  }
+
+  const numAtual = parseInt(item.parcela.split("/")[0], 10);
+  const restantes = irmaos.filter((o) => {
+    const n = parseInt(o.parcela.split("/")[0], 10);
+    return n >= numAtual;
+  });
+
+  const pagasAntes = irmaos.filter((o) => {
+    const n = parseInt(o.parcela.split("/")[0], 10);
+    return n < numAtual && o.pago;
+  });
+
+  let avisoForte = "";
+  if (pagasAntes.length > 0) {
+    avisoForte = `<div class="modal-aviso alerta-forte">
+      ⚠️ ${pagasAntes.length} parcela(s) anterior(es) já paga(s) <strong>não</strong> serão afetadas nas opções abaixo.
+    </div>`;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-sheet" role="dialog" aria-modal="true">
+      <h3 class="modal-titulo">Editar parcela ${item.parcela}</h3>
+      <p class="modal-sub">
+        <strong>${item.categoria}</strong> — parcelamento em ${irmaos.length}x.
+        Esta é a ${item.parcela}. O que você quer editar?
+      </p>
+      ${avisoForte}
+      <div class="modal-opcoes">
+        <button class="modal-opcao" data-op="uma">
+          <span class="op-titulo">Só esta parcela</span>
+          <span class="op-desc">A ${item.parcela} vira R$ ${formatarMoeda(item.valor)} editado; as outras ficam como estão</span>
+        </button>
+        <button class="modal-opcao" data-op="estaEFuturas">
+          <span class="op-titulo">Esta e as futuras</span>
+          <span class="op-desc">Edita a ${item.parcela} e as ${restantes.length - 1} seguintes</span>
+        </button>
+        <button class="modal-opcao" data-op="todas">
+          <span class="op-titulo">Todas as parcelas</span>
+          <span class="op-desc">Edita as ${irmaos.length} parcelas, incluindo as ${numAtual - 1} anteriores</span>
+        </button>
+        <button class="modal-opcao perigo" data-op="cancelarRestante">
+          <span class="op-titulo">Cancelar daqui pra frente</span>
+          <span class="op-desc">A ${item.parcela} em diante viram lançamentos normais (mantém valor e data)</span>
+        </button>
+      </div>
+      <button class="modal-cancelar" data-op="cancelar">Cancelar</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  function fechar() { overlay.remove(); }
+
+  overlay.querySelector('[data-op="uma"]').addEventListener("click", () => {
+    fechar();
+    editarAvulso_(item);
+  });
+
+  overlay.querySelector('[data-op="estaEFuturas"]').addEventListener("click", () => {
+    fechar();
+    abrirWizardEdicaoLote_(item, restantes.map((o) => o.id), "estaEFuturas");
+  });
+
+  overlay.querySelector('[data-op="todas"]').addEventListener("click", () => {
+    fechar();
+    abrirWizardEdicaoLote_(item, irmaos.map((o) => o.id), "todas");
+  });
+
+  overlay.querySelector('[data-op="cancelarRestante"]').addEventListener("click", () => {
+    fechar();
+    abrirWizardEdicaoLote_(item, restantes.map((o) => o.id), "cancelarRestante");
+  });
+
+  overlay.querySelector('[data-op="cancelar"]').addEventListener("click", fechar);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+}
+
+/**
+ * BLOCO B-3: abre o wizard pra editar em lote.
+ * Pré-preenche com os dados atuais do item clicado.
+ */
+function abrirWizardEdicaoLote_(item, ids, escopo) {
+  resetState();
+  state.editingEscopo = escopo;
+  state.editingIds = ids;
+  // Guarda também o id principal (o que foi clicado) como referência
+  state.editingId = (escopo === "estaEFuturas" || escopo === "todas") ? item.id : null;
+
+  const [ano, mesNum] = item.dataISO.split("-").map(Number);
+  const hoje = new Date();
+  const offset = (ano - hoje.getFullYear()) * 12 + ((mesNum - 1) - hoje.getMonth());
+  state.mesLancamento = { label: `${MESES_PT[mesNum - 1]} de ${ano}`, ano, mesIndex: mesNum - 1, offset };
+
+  state.quem = item.quem;
+  state.bloco = item.bloco;
+  state.categoria = item.categoria;
+  state.valor = String(item.valor).replace(".", ",");
+  state.pago = !!item.pago;
+  state.observacao = item.observacao || "";
+  state.parcelado = true;
+  state.quantidadeParcelas = null;
+
+  // Vai direto pra confirmação (passo 9), já que tudo está preenchido
   goToStep(9);
 }
 
 function encontrarIrmaos(item, todosItens) {
   if (!item.parcela) return [];
+  if (item.grupoId) {
+    // BLOCO B-3: agrupa por GrupoID
+    return todosItens.filter((o) => o.grupoId === item.grupoId && o.parcela);
+  }
+  // Fallback (parcelas antigas sem GrupoID): heurística do B-2.5
   const match = /^(\d+)\/(\d+)$/.exec(item.parcela);
   if (!match) return [];
   const total = parseInt(match[2], 10);
