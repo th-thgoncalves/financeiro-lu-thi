@@ -23,6 +23,7 @@ const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                   "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
 const LIMITE_RECENTES = 30;
+const MESES_FUTUROS = 12; // BLOCO B-1: atual + 12 seguintes
 
 function mesAtualLabel() {
   const h = new Date();
@@ -36,6 +37,22 @@ function gerarOpcoesDeMes() {
   }
   return out;
 }
+
+// BLOCO B-1: meses do wizard — atual + 12 seguintes
+function gerarMesesLancamento() {
+  const out = []; const h = new Date();
+  for (let off = 0; off <= MESES_FUTUROS; off++) {
+    const d = new Date(h.getFullYear(), h.getMonth() + off, 1);
+    out.push({
+      label: `${MESES_PT[d.getMonth()]} de ${d.getFullYear()}`,
+      ano: d.getFullYear(),
+      mesIndex: d.getMonth(),
+      offset: off,
+    });
+  }
+  return out;
+}
+
 function formatarMoeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
 }
@@ -46,6 +63,29 @@ function parseValor(v) {
 }
 function hojeISO() {
   return new Date().toISOString().split("T")[0];
+}
+
+// BLOCO B-1: monta a data-alvo AAAA-MM-DD a partir de um {ano, mesIndex}
+// Preserva o dia de hoje, mas se o mês-alvo não tiver esse dia (ex: 31),
+// cai pro último dia do mês (ex: 30).
+function montarDataAlvo(mesObj) {
+  const hoje = new Date();
+  const diaDesejado = hoje.getDate();
+  const ultimoDia = new Date(mesObj.ano, mesObj.mesIndex + 1, 0).getDate();
+  const dia = Math.min(diaDesejado, ultimoDia);
+  const d = new Date(mesObj.ano, mesObj.mesIndex, dia);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// BLOCO B-1: verifica se uma dataISO é de um mês futuro em relação a hoje
+function ehMesFuturo(dataISO) {
+  if (!dataISO) return false;
+  const [y, m] = dataISO.split("-").map(Number);
+  const hoje = new Date();
+  return (y > hoje.getFullYear()) || (y === hoje.getFullYear() && (m - 1) > hoje.getMonth());
 }
 
 // ============================================================
@@ -90,21 +130,22 @@ const state = {
   categoria: null,
   categoriaOutro: "",
   valor: "",
+  // BLOCO B-1: mês-alvo do lançamento
+  mesLancamento: null, // { label, ano, mesIndex, offset }
   pago: null,
   observacao: "",
   resumoMes: null,
 
-  // Edição
   editingId: null,
   editingMeta: null,
 
-  // Recentes
   recentesMes: "todos",
   recentesBusca: "",
-  recentesIniciado: false, // BLOCO A-v2: só busca depois que o usuário interage
+  recentesIniciado: false,
 };
 
-const TOTAL_STEPS = 6;
+// Wizard agora tem 7 passos (antes do sucesso)
+const TOTAL_STEPS = 7;
 
 const screenWrap = document.getElementById("screenWrap");
 const backBtn = document.getElementById("backBtn");
@@ -128,12 +169,11 @@ function resetState() {
   state.categoria = null;
   state.categoriaOutro = "";
   state.valor = "";
+  state.mesLancamento = null; // volta ao padrão (mês atual) no próximo wizard
   state.pago = null;
   state.observacao = "";
   state.editingId = null;
   state.editingMeta = null;
-  // recentesMes/Busca/Iniciado são preservados de propósito
-  // (o usuário volta pra tela e vê o mesmo filtro de antes)
 }
 
 function goHome()        { state.screen = "home"; render(); }
@@ -149,7 +189,7 @@ function updateProgress() {
     dot.classList.toggle("active", isWizard && n === state.step);
     dot.classList.toggle("done",   isWizard && n < state.step);
   });
-  backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 7);
+  backBtn.hidden = state.screen === "home" || (state.screen === "wizard" && state.step === 8);
 }
 
 // ============================================================
@@ -158,7 +198,7 @@ function updateProgress() {
 function render() {
   updateProgress();
   screenWrap.innerHTML = "";
-  removerBotaoTopo(); // BLOCO A-v2: limpa o FAB a cada troca de tela
+  removerBotaoTopo();
   if (state.screen === "home")      return renderHome();
   if (state.screen === "resumo")    return renderResumo();
   if (state.screen === "recentes")  return renderRecentes();
@@ -167,9 +207,10 @@ function render() {
     case 2: renderBloco(); break;
     case 3: renderCategoria(); break;
     case 4: renderValor(); break;
-    case 5: renderStatus(); break;
-    case 6: renderObservacao(); break;
-    case 7: renderSucesso(); break;
+    case 5: renderMesLancamento(); break;  // BLOCO B-1
+    case 6: renderStatus(); break;
+    case 7: renderObservacao(); break;
+    case 8: renderSucesso(); break;
   }
 }
 
@@ -182,7 +223,7 @@ function screenEl(html) {
 }
 
 // ============================================================
-// BLOCO A-v2: botão flutuante "voltar ao topo"
+// Botão flutuante "voltar ao topo"
 // ============================================================
 let botaoTopoEl = null;
 
@@ -253,7 +294,7 @@ async function fazerBackupAgora() {
 }
 
 // ============================================================
-// Wizard
+// Wizard — passos 1 a 4
 // ============================================================
 function renderQuem() {
   const el = screenEl(`
@@ -381,15 +422,79 @@ function renderValor() {
   nextBtn.addEventListener("click", () => goToStep(5));
 }
 
+// ============================================================
+// BLOCO B-1: passo 5 — quando é o lançamento
+// ============================================================
+function renderMesLancamento() {
+  const isReceita = state.bloco === "Receita";
+  const titulo = isReceita ? "Quando você vai receber?" : "Quando é pra pagar?";
+  const sub = isReceita
+    ? "Escolha o mês em que esse valor deve entrar na conta."
+    : "Escolha o mês em que essa despesa deve ser paga.";
+
+  const el = screenEl(`
+    <h2 class="screen-title">${titulo}</h2>
+    <p class="screen-sub">${sub}</p>
+    <div class="mes-opcoes" id="mesOpcoes"></div>
+    <button class="btn-primary" id="mesNext" style="margin-top:18px;" disabled>Continuar</button>
+  `);
+
+  const container = el.querySelector("#mesOpcoes");
+  const nextBtn = el.querySelector("#mesNext");
+
+  const meses = gerarMesesLancamento();
+  // Se o state ainda não tem mês, pré-seleciona o mês atual (offset 0)
+  if (!state.mesLancamento) state.mesLancamento = meses[0];
+
+  meses.forEach((mes) => {
+    const b = document.createElement("button");
+    b.className = "mes-opcao";
+    if (state.mesLancamento && state.mesLancamento.label === mes.label) b.classList.add("selected");
+    const tag = mes.offset === 0 ? "mês atual" : `+${mes.offset} ${mes.offset === 1 ? "mês" : "meses"}`;
+    b.innerHTML = `<span>${mes.label}</span><span class="mes-tag">${tag}</span>`;
+    b.addEventListener("click", () => {
+      state.mesLancamento = mes;
+      container.querySelectorAll(".mes-opcao").forEach((x) => x.classList.remove("selected"));
+      b.classList.add("selected");
+      checkReady();
+    });
+    container.appendChild(b);
+  });
+
+  function checkReady() {
+    nextBtn.disabled = !state.mesLancamento;
+  }
+
+  // Se já tem seleção (pré-selecionada ou vinda de edição), habilita
+  checkReady();
+
+  nextBtn.addEventListener("click", () => {
+    // BLOCO B-1: se for mês futuro e o usuário ainda não respondeu o "pago",
+    // pré-seleciona "ainda não" — mas ele pode mudar no próximo passo
+    goToStep(6);
+  });
+}
+
+// ============================================================
+// Passo 6 — já foi pago/recebido
+// ============================================================
 function renderStatus() {
   const isReceita = state.bloco === "Receita";
   const pergunta = isReceita ? "Esse valor já entrou na conta?" : "Essa despesa já foi paga?";
   const sim = isReceita ? "Sim, já recebido" : "Sim, já paguei";
   const nao = isReceita ? "Ainda não" : "Ainda não paguei";
 
+  // BLOCO B-1: se o mês escolhido for futuro, sugerimos "não" — mas
+  // pré-selecionamos mesmo assim como `false` só pra ficar visível. O
+  // usuário ainda precisa tocar no botão; nada é gravado silenciosamente.
+  const futuro = state.mesLancamento && state.mesLancamento.offset > 0;
+
   const el = screenEl(`
     <h2 class="screen-title">${pergunta}</h2>
     <p class="screen-sub">Isso separa o que já é dinheiro de fato do que ainda está previsto.</p>
+    ${futuro ? `<div class="error-banner" style="background: var(--gold-tint); border-color: var(--gold); color: var(--ink);">
+      Você escolheu um mês futuro. Normalmente ainda não foi ${isReceita ? "recebido" : "pago"}, mas confirme abaixo.
+    </div>` : ""}
     <div class="tile-grid" id="statusGrid" style="gap:12px;"></div>
   `);
   const grid = el.querySelector("#statusGrid");
@@ -397,16 +502,19 @@ function renderStatus() {
   const bs = document.createElement("button");
   bs.className = "tile tile-fixa";
   bs.textContent = sim;
-  bs.addEventListener("click", () => { state.pago = true; goToStep(6); });
+  bs.addEventListener("click", () => { state.pago = true; goToStep(7); });
   grid.appendChild(bs);
 
   const bn = document.createElement("button");
   bn.className = "tile tile-cartao";
   bn.textContent = nao;
-  bn.addEventListener("click", () => { state.pago = false; goToStep(6); });
+  bn.addEventListener("click", () => { state.pago = false; goToStep(7); });
   grid.appendChild(bn);
 }
 
+// ============================================================
+// Passo 7 — observação + salvar
+// ============================================================
 function renderObservacao() {
   const categoriaLabel = state.categoria === "Outro" ? state.categoriaOutro : state.categoria;
   const valorFormatado = parseValor(state.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
@@ -417,6 +525,11 @@ function renderObservacao() {
   const titulo = state.editingId ? "Confirmar alterações" : "Confirmar lançamento";
   const botao  = state.editingId ? "Salvar alterações" : "Salvar lançamento";
 
+  const mesLabel = state.mesLancamento ? state.mesLancamento.label : mesAtualLabel();
+  const mesTag = state.mesLancamento && state.mesLancamento.offset > 0
+    ? ` · <em style="color: var(--gold);">${mesLabel}</em>`
+    : "";
+
   const el = screenEl(`
     <h2 class="screen-title">${titulo}</h2>
     <div class="summary">
@@ -424,7 +537,7 @@ function renderObservacao() {
       <span class="chip">${state.bloco}</span>
       <span class="chip">${categoriaLabel}</span>
       <span class="chip"><strong>R$ ${valorFormatado}</strong></span>
-      <span class="chip">${statusLabel}</span>
+      <span class="chip">${statusLabel}${mesTag}</span>
     </div>
     <div id="duplicadoSlot"></div>
     <div id="orcamentoSlot"></div>
@@ -470,7 +583,7 @@ async function verificarOrcamentoNoLancamento(container, categoriaLabel) {
     const limite = ORCAMENTOS_REMOTOS[`${state.bloco}||${categoriaLabel}`];
     if (!limite) return;
 
-    const mesLabel = mesAtualLabel();
+    const mesLabel = state.mesLancamento ? state.mesLancamento.label : mesAtualLabel();
     const res = await fetch(`${SCRIPT_URL}?mes=${encodeURIComponent(mesLabel)}`).then((r) => r.json());
     if (!res || res.status !== "ok") return;
     const linha = (res.linhas || []).find((l) => l.bloco === state.bloco && l.categoria === categoriaLabel);
@@ -504,8 +617,19 @@ async function salvar(button, errorSlot) {
   button.innerHTML = `<span class="spinner"></span> Salvando...`;
 
   const now = new Date();
-  const dataISO = state.editingMeta?.dataISO || now.toISOString().split("T")[0];
-  const hora    = state.editingMeta?.hora    || now.toTimeString().slice(0, 5);
+
+  // BLOCO B-1: se temos mesLancamento escolhido, usamos ele pra montar
+  // a data-alvo. Senão (edição), usamos a data original.
+  let dataISO;
+  if (state.editingId && state.editingMeta?.dataISO) {
+    // Em edição, se o usuário não passou pelo passo de mês (foi direto
+    // pra confirmação), mantemos a data original.
+    dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : state.editingMeta.dataISO;
+  } else {
+    dataISO = state.mesLancamento ? montarDataAlvo(state.mesLancamento) : now.toISOString().split("T")[0];
+  }
+
+  const hora = state.editingMeta?.hora || now.toTimeString().slice(0, 5);
 
   const payload = {
     action: state.editingId ? "editar" : undefined,
@@ -523,7 +647,6 @@ async function salvar(button, errorSlot) {
   try {
     if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
 
-    // BLOCO A-v2: header simplificado — o Safari implicava com "text/plain;charset=utf-8"
     const json = await fetch(SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
@@ -531,7 +654,7 @@ async function salvar(button, errorSlot) {
     }).then((r) => r.json());
 
     if (json.status !== "ok") throw new Error(json.message || "A planilha recusou o lançamento.");
-    goToStep(7);
+    goToStep(8);
   } catch (err) {
     errorSlot.innerHTML = `<div class="error-banner">Não deu pra salvar: ${err.message}</div>`;
     button.disabled = false;
@@ -567,19 +690,27 @@ function renderResumo() {
     <div id="resumoResultado"></div>
   `);
   const select = el.querySelector("#mesSelect");
-  gerarOpcoesDeMes().forEach((label) => {
+
+  // BLOCO B-1: no Resumo, oferecemos também os 12 meses futuros,
+  // porque agora é possível lançar coisa em meses futuros.
+  const opcoes = gerarOpcoesDeMes();
+  gerarMesesLancamento().forEach((m) => {
+    if (!opcoes.includes(m.label)) opcoes.push(m.label);
+  });
+
+  opcoes.forEach((label) => {
     const opt = document.createElement("option");
     opt.value = label; opt.textContent = label;
     if (label === state.resumoMes) opt.selected = true;
     select.appendChild(opt);
   });
+
   select.addEventListener("change", () => {
     state.resumoMes = select.value;
     carregarResumo(el.querySelector("#resumoResultado"), state.resumoMes);
   });
   carregarResumo(el.querySelector("#resumoResultado"), state.resumoMes);
 
-  // BLOCO A-v2: FAB de voltar ao topo
   instalarBotaoTopo();
 }
 
@@ -660,7 +791,7 @@ function renderResumoResultado(container, d) {
 }
 
 // ============================================================
-// BLOCO A-v2: fetch de Recentes sem URLSearchParams (Safari-safe)
+// Fetch de Recentes
 // ============================================================
 async function fetchRecentes(opts) {
   const o = opts || {};
@@ -678,7 +809,7 @@ async function fetchRecentes(opts) {
 }
 
 // ============================================================
-// Tela de Recentes (BLOCO A-v2: só busca após interação)
+// Tela de Recentes
 // ============================================================
 function renderRecentes() {
   const el = screenEl(`
@@ -698,14 +829,18 @@ function renderRecentes() {
   const mesSelect  = el.querySelector("#mesFiltroSelect");
   const listaEl    = el.querySelector("#recentesLista");
 
-  // Opção "Todos os meses" + os 13 meses
   const optTodos = document.createElement("option");
   optTodos.value = "todos";
   optTodos.textContent = "Todos os meses";
   if (state.recentesMes === "todos") optTodos.selected = true;
   mesSelect.appendChild(optTodos);
 
-  gerarOpcoesDeMes().forEach((label) => {
+  // BLOCO B-1: no filtro de Recentes, oferecemos também os 12 meses futuros
+  const opcoes = gerarOpcoesDeMes();
+  gerarMesesLancamento().forEach((m) => {
+    if (!opcoes.includes(m.label)) opcoes.push(m.label);
+  });
+  opcoes.forEach((label) => {
     const opt = document.createElement("option");
     opt.value = label; opt.textContent = label;
     if (label === state.recentesMes) opt.selected = true;
@@ -714,7 +849,6 @@ function renderRecentes() {
 
   buscaInput.value = state.recentesBusca;
 
-  // BLOCO A-v2: se ainda não interagiu, mostra convite e NÃO busca
   if (!state.recentesIniciado) {
     listaEl.innerHTML = `
       <div class="convite-inicial">
@@ -740,7 +874,6 @@ function renderRecentes() {
     carregarRecentes(listaEl);
   });
 
-  // BLOCO A-v2: FAB de voltar ao topo
   instalarBotaoTopo();
 }
 
@@ -775,16 +908,23 @@ async function carregarRecentes(container) {
 
 function criarCartaoRecente(item, container) {
   const row = document.createElement("div");
-  row.className = "cat-item";
+  row.className = "cat-item" + (item.pago ? " pago" : ""); // BLOCO B-1: classe verde
   row.style.display = "flex";
   row.style.flexDirection = "column";
   row.style.gap = "8px";
 
-  const statusTxt = item.pago ? "" : ` · <span style="color:var(--brick);">pendente</span>`;
+  const statusTxt = item.pago
+    ? ` · <span style="color:var(--teal-dark); font-weight:600;">${item.bloco === "Receita" ? "recebido" : "pago"}</span>`
+    : ` · <span style="color:var(--brick);">pendente</span>`;
+
+  // BLOCO B-1: chip "agendado" se for mês futuro
+  const agendado = ehMesFuturo(item.dataISO)
+    ? `<span class="chip-agendado">agendado</span>`
+    : "";
 
   row.innerHTML = `
     <div>
-      <strong>${item.categoria}</strong> — R$ ${formatarMoeda(item.valor)}<br>
+      <strong class="valor-principal">${item.categoria}</strong> — <strong class="valor-principal">R$ ${formatarMoeda(item.valor)}</strong>${agendado}<br>
       <span style="font-size:12px; color:var(--ink-soft);">${item.quem} · ${item.bloco} · ${item.data} ${item.hora}${statusTxt}</span>
     </div>
     <div class="row-acoes">
@@ -806,7 +946,7 @@ function criarCartaoRecente(item, container) {
 }
 
 // ============================================================
-// Ações dos Recentes (BLOCO A-v2: header simplificado no POST)
+// Ações dos Recentes
 // ============================================================
 async function alternarPago(item, container) {
   const novoPago = !item.pago;
@@ -842,13 +982,25 @@ function iniciarEdicao(item) {
   resetState();
   state.editingId = item.id;
   state.editingMeta = { dataISO: item.dataISO, hora: item.hora };
+
+  // BLOCO B-1: reconstrói mesLancamento a partir da data do item
+  const [ano, mesNum] = item.dataISO.split("-").map(Number);
+  const hoje = new Date();
+  const offset = (ano - hoje.getFullYear()) * 12 + ((mesNum - 1) - hoje.getMonth());
+  state.mesLancamento = {
+    label: `${MESES_PT[mesNum - 1]} de ${ano}`,
+    ano,
+    mesIndex: mesNum - 1,
+    offset,
+  };
+
   state.quem = item.quem;
   state.bloco = item.bloco;
   state.categoria = item.categoria;
   state.valor = String(item.valor).replace(".", ",");
   state.pago = !!item.pago;
   state.observacao = item.observacao || "";
-  goToStep(6);
+  goToStep(7); // vai direto pra confirmação (pulando os passos 1-6)
 }
 
 async function excluirItem(item, container) {
