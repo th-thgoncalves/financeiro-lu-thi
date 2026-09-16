@@ -788,3 +788,106 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 }
 
 .parcela-resumo strong { font-weight: 700; }
+
+/* ---------- BLOCO B-2.5: modal de exclusão de parcelamento ---------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(43, 36, 32, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+  animation: fade-in 0.15s ease;
+}
+
+.modal-sheet {
+  background: var(--paper);
+  width: 100%;
+  max-width: 480px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+  box-shadow: 0 -4px 24px rgba(43, 36, 32, 0.2);
+  animation: slide-up 0.2s ease;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.modal-titulo {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+.modal-sub {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.modal-aviso {
+  background: var(--gold-tint);
+  border: 1px solid var(--gold);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.modal-opcoes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-opcao {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  color: var(--ink);
+  text-align: left;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-opcao:active { transform: scale(0.99); }
+
+.modal-opcao .op-desc {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.modal-opcao.perigo {
+  border-color: var(--brick);
+  background: var(--brick-tint);
+  color: var(--brick);
+}
+
+.modal-opcao.perigo .op-desc { color: var(--brick); }
+
+.modal-cancelar {
+  margin-top: 14px;
+  background: none;
+  border: none;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px;
+  width: 100%;
+  min-height: 44px;
+}
