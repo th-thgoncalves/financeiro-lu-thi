@@ -22,6 +22,10 @@
   --font-body: "Public Sans", sans-serif;
 
   --shadow-card: 0 1px 2px rgba(43, 36, 32, 0.06), 0 8px 24px rgba(43, 36, 32, 0.08);
+
+  /* Skeleton */
+  --skeleton-base: #E5DCC6;
+  --skeleton-shine: #EFE7D3;
 }
 
 * { box-sizing: border-box; }
@@ -61,7 +65,6 @@ button {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* BLOCO A-v2: header com 3 colunas (back | título | resumo) e mais respiro */
 .app-header {
   display: grid;
   grid-template-columns: 48px 1fr 48px;
@@ -96,17 +99,38 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  justify-self: end; /* BLOCO A-v2: gruda na coluna da direita, dando respiro do título */
+  justify-self: end;
 }
 
 .resumo-btn:active { transform: scale(0.95); }
+
+.casa-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  color: var(--teal-dark);
+}
+
+.casa-btn:active { transform: scale(0.95); }
+
+.casa-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
 
 .app-title {
   display: flex;
   flex-direction: column;
   align-items: center;
   line-height: 1;
-  justify-self: center; /* BLOCO A-v2: título centralizado dentro da coluna do meio */
+  justify-self: center;
 }
 
 .app-title .eyebrow {
@@ -251,6 +275,15 @@ button {
   background: var(--teal-tint);
 }
 
+.cat-item.pago {
+  border-color: var(--teal);
+  background: var(--teal-tint);
+}
+
+.cat-item.pago strong.valor-principal {
+  color: var(--teal-dark);
+}
+
 /* ---------- Value step ---------- */
 .value-display {
   flex: 1;
@@ -298,7 +331,7 @@ button {
 
 .value-input::placeholder { color: var(--line); }
 
-/* ---------- Text field (observação) ---------- */
+/* ---------- Text field ---------- */
 .field-label {
   font-size: 13px;
   color: var(--ink-soft);
@@ -370,10 +403,10 @@ button {
   font-weight: 600;
   padding: 12px;
   align-self: center;
-  min-height: 44px; /* alvo de toque iOS */
+  min-height: 44px;
 }
 
-/* ---------- Spinner ---------- */
+/* ---------- Spinner (pro botão "Salvando...") ---------- */
 .spinner {
   width: 16px;
   height: 16px;
@@ -550,7 +583,7 @@ button {
 .barra-preenchida.alerta   { background: var(--gold); }
 .barra-preenchida.estourou { background: var(--brick); }
 
-/* ---------- Bloco A: barra de busca ---------- */
+/* ---------- Busca ---------- */
 .search-input {
   width: 100%;
   border: 1px solid var(--line);
@@ -577,7 +610,7 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   -webkit-appearance: none;
 }
 
-/* Ações no cartão de lançamento */
+/* ---------- Ações nos cartões ---------- */
 .row-acoes {
   display: flex;
   gap: 8px;
@@ -607,7 +640,7 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 .btn-mini.desfazer  { color: var(--ink-soft); }
 .btn-mini.excluir   { color: var(--brick); border-color: var(--brick-tint); }
 
-/* Estado "sem resultados" / "convite" */
+/* ---------- Convite inicial / sem resultado ---------- */
 .sem-resultado {
   text-align: center;
   color: var(--ink-soft);
@@ -615,7 +648,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   padding: 32px 0;
 }
 
-/* BLOCO A-v2: convite inicial dos Recentes */
 .convite-inicial {
   text-align: center;
   padding: 40px 20px;
@@ -632,7 +664,7 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   margin-bottom: 10px;
 }
 
-/* BLOCO A-v2: botão voltar ao topo (FAB) */
+/* ---------- Botão voltar ao topo (FAB) ---------- */
 .btn-topo {
   position: fixed;
   right: 20px;
@@ -654,30 +686,13 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 .btn-topo.visivel { display: flex; }
 .btn-topo:active { transform: scale(0.94); }
 
-/* Em telas maiores que o app, centraliza o FAB junto do app */
 @media (min-width: 520px) {
   .btn-topo {
     right: calc(50% - 240px + 20px);
   }
 }
 
-/* Ajuste de toque: botões do wizard também 44px */
-.tile-backup .tile-hint { color: var(--ink-soft); }
-
-/* ---------- BLOCO B-1: pago/recebido em verde + agendado ---------- */
-
-/* Card inteiro de um lançamento pago/recebido fica esverdeado */
-.cat-item.pago {
-  border-color: var(--teal);
-  background: var(--teal-tint);
-}
-
-/* Valor em verde discreto dentro do card pago */
-.cat-item.pago strong.valor-principal {
-  color: var(--teal-dark);
-}
-
-/* Chip pequeno "agendado" pra lançamentos com data futura */
+/* ---------- Tags e chips auxiliares ---------- */
 .chip-agendado {
   display: inline-block;
   font-size: 11px;
@@ -691,7 +706,61 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   vertical-align: middle;
 }
 
-/* Passo novo: escolher mês do lançamento */
+.tag-parcela {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--teal-dark);
+  background: var(--teal-tint);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* ---------- Parcelamento ---------- */
+.parcelas-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.parcela-btn {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 14px 8px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  color: var(--ink);
+  text-align: center;
+  min-height: 44px;
+}
+
+.parcela-btn:active { transform: scale(0.97); }
+
+.parcela-btn.selected {
+  border-color: var(--teal);
+  background: var(--teal-tint);
+  color: var(--teal-dark);
+}
+
+.parcela-resumo {
+  border: 1px solid var(--teal);
+  background: var(--teal-tint);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--teal-dark);
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.parcela-resumo strong { font-weight: 700; }
+
+/* ---------- Meses (wizard) ---------- */
 .mes-opcoes {
   display: flex;
   flex-direction: column;
@@ -731,66 +800,7 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 }
 .mes-opcao.selected .mes-tag { color: var(--teal-dark); }
 
-/* ---------- BLOCO B-2: parcelamento ---------- */
-
-/* Tag de parcela no card de Recentes e nas linhas do Resumo */
-.tag-parcela {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--teal-dark);
-  background: var(--teal-tint);
-  border-radius: 999px;
-  padding: 2px 8px;
-  margin-left: 6px;
-  vertical-align: middle;
-}
-
-/* Contador de parcelas (1x, 2x, ...) */
-.parcelas-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.parcela-btn {
-  border: 1px solid var(--line);
-  background: var(--paper-2);
-  border-radius: var(--radius-sm);
-  padding: 14px 8px;
-  font-size: 15px;
-  font-weight: 700;
-  font-family: var(--font-body);
-  color: var(--ink);
-  text-align: center;
-  min-height: 44px;
-}
-
-.parcela-btn:active { transform: scale(0.97); }
-
-.parcela-btn.selected {
-  border-color: var(--teal);
-  background: var(--teal-tint);
-  color: var(--teal-dark);
-}
-
-/* Resumo do parcelamento (ex: "6x de R$ 200,00") */
-.parcela-resumo {
-  border: 1px solid var(--teal);
-  background: var(--teal-tint);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  font-size: 14px;
-  color: var(--teal-dark);
-  margin-bottom: 16px;
-  text-align: center;
-}
-
-.parcela-resumo strong { font-weight: 700; }
-
-/* ---------- BLOCO B-2.5: modal de exclusão de parcelamento ---------- */
-
+/* ---------- Modais ---------- */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -842,6 +852,13 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   margin-bottom: 16px;
 }
 
+.modal-aviso.alerta-forte {
+  background: var(--brick-tint);
+  border-color: var(--brick);
+  color: var(--brick);
+  font-weight: 600;
+}
+
 .modal-opcoes {
   display: flex;
   flex-direction: column;
@@ -872,13 +889,21 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   color: var(--ink-soft);
 }
 
+.modal-opcao .op-titulo {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
 .modal-opcao.perigo {
   border-color: var(--brick);
   background: var(--brick-tint);
   color: var(--brick);
 }
-
-.modal-opcao.perigo .op-desc { color: var(--brick); }
+.modal-opcao.perigo .op-desc,
+.modal-opcao.perigo .op-titulo { color: var(--brick); }
 
 .modal-cancelar {
   margin-top: 14px;
@@ -892,44 +917,115 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   min-height: 44px;
 }
 
-/* ---------- BLOCO B-3: modal de escopo de edição de parcelamento ---------- */
+.tile-backup .tile-hint { color: var(--ink-soft); }
 
-.modal-opcao .op-titulo {
-  display: block;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--ink);
-  margin-bottom: 4px;
+/* ============================================================
+   SKELETON SCREENS
+   Caixas pulsantes no formato do conteúdo real, mostradas
+   enquanto os dados estão sendo carregados.
+   ============================================================ */
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
 }
 
-.modal-opcao.perigo .op-titulo { color: var(--brick); }
-
-/* Aviso dentro do modal quando há parcelas pagas que serão afetadas */
-.modal-aviso.alerta-forte {
-  background: var(--brick-tint);
-  border-color: var(--brick);
-  color: var(--brick);
-  font-weight: 600;
+.skeleton {
+  background: var(--skeleton-base);
+  border-radius: 6px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
 
-/* Botão de casa no header (substitui o antigo 📊) */
-.casa-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; opacity: 0.7; }
+}
+
+/* Skeleton em formato de cartão de lançamento */
+.skeleton-card {
   border: 1px solid var(--line);
-  background: var(--paper);
-  font-size: 18px;
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 15px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-card .linha-1 { display: flex; justify-content: space-between; gap: 10px; }
+.skeleton-card .linha-1 .skeleton.titulo { width: 45%; height: 16px; }
+.skeleton-card .linha-1 .skeleton.valor { width: 25%; height: 16px; }
+.skeleton-card .linha-2 { display: flex; gap: 8px; }
+.skeleton-card .linha-2 .skeleton.meta { width: 60%; height: 11px; }
+.skeleton-card .linha-3 { display: flex; gap: 8px; justify-content: flex-end; }
+.skeleton-card .linha-3 .skeleton.acao { width: 72px; height: 32px; border-radius: 999px; }
+
+/* Skeleton em formato de categoria (wizard) */
+.skeleton-cat {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 15px 16px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  justify-self: end;
-  color: var(--teal-dark);
+}
+.skeleton-cat .skeleton.cat-nome { width: 55%; height: 16px; }
+
+/* Skeleton em formato de resumo */
+.skeleton-resumo-topo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.skeleton-resumo-topo .skeleton-card-grande {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skeleton-resumo-topo .skeleton-card-grande .skeleton.label { width: 55%; height: 12px; }
+.skeleton-resumo-topo .skeleton-card-grande .skeleton.valor { width: 75%; height: 20px; }
+
+.skeleton-chips {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+.skeleton-chips .skeleton.chip-skeleton {
+  height: 28px;
+  border-radius: 999px;
+  flex: 1;
 }
 
-.casa-btn:active { transform: scale(0.95); }
-
-.casa-btn:disabled {
-  opacity: 0.35;
-  pointer-events: none;
+.skeleton-bloco-titulo {
+  height: 12px;
+  width: 40%;
+  margin-bottom: 10px;
 }
+
+.skeleton-linha {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 2px;
+  border-bottom: 1px dashed var(--line);
+}
+.skeleton-linha:last-child { border-bottom: none; }
+.skeleton-linha .skeleton.nome { width: 45%; height: 14px; }
+.skeleton-linha .skeleton.val { width: 22%; height: 14px; }
+
+/* Skeleton em formato de mês (wizard quando escolhe o mês — não usado hoje, mas fica pronto) */
+.skeleton-mes {
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.skeleton-mes .skeleton.mes-nome { width: 50%; height: 14px; }
+.skeleton-mes .skeleton.mes-tag  { width: 60px; height: 11px; }
