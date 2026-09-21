@@ -1218,11 +1218,12 @@ input[type="search"].search-input::-webkit-search-cancel-button {
    GERENCIAR CATEGORIAS
    ============================================================ */
 
-/* Tile de engrenagem no fim da home — discreto e redondo */
+/* Tile de engrenagem no fim da home — empurrado pro rodapé */
 .tile-config {
   display: flex;
   justify-content: center;
-  margin-top: 26px;
+  margin-top: auto;      /* Empurra pro rodapé da tela */
+  padding-top: 24px;     /* Respiro em telas pequenas */
 }
 
 .btn-config {
