@@ -129,7 +129,7 @@ function calcularParcelas(valorTotal, quantidade) {
 // ============================================================
 // SKELETON HELPERS
 // ============================================================
-async function comSkeleton(container, htmlSkeleton, fetchFn, renderFn) {
+async function comSkeleton(container, htmlSkeleton, fetchFn, renderFn, aposRender) {
   const timer = setTimeout(() => {
     container.innerHTML = htmlSkeleton();
   }, SKELETON_DELAY_MS);
@@ -138,6 +138,11 @@ async function comSkeleton(container, htmlSkeleton, fetchFn, renderFn) {
     const dados = await fetchFn();
     clearTimeout(timer);
     container.innerHTML = renderFn(dados);
+    // Callback opcional: roda depois que o HTML foi injetado.
+    // Útil pra ativar event listeners em elementos recém-criados.
+    if (typeof aposRender === "function") {
+      queueMicrotask(() => aposRender(dados));
+    }
   } catch (err) {
     clearTimeout(timer);
     container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
