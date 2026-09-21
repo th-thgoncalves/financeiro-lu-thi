@@ -34,7 +34,7 @@ const CORES_BLOCO = {
   "Outro":            "#8C8274",
 };
 
-// Cache em memória (Bloco C)
+// Cache em memória
 const CACHE_TTL_MS = 30 * 1000;
 const cacheMemoria = new Map();
 
@@ -212,7 +212,11 @@ let CATEGORIAS_REMOTAS = null;
 let categoriasPromise = null;
 let ORCAMENTOS_REMOTOS = null;
 
-function carregarCategorias() {
+function carregarCategorias(forcar) {
+  if (forcar) {
+    categoriasPromise = null;
+    CATEGORIAS_REMOTAS = null;
+  }
   if (categoriasPromise) return categoriasPromise;
   categoriasPromise = (async () => {
     try {
@@ -274,7 +278,7 @@ backBtn.addEventListener("click", () => {
   if (state.screen === "wizard") {
     if (state.step <= 1) goHome();
     else goToStep(state.step - 1);
-  } else if (state.screen === "resumo" || state.screen === "recentes") {
+  } else if (state.screen === "resumo" || state.screen === "recentes" || state.screen === "config") {
     goHome();
   }
 });
@@ -295,6 +299,7 @@ function goHome()       { state.screen = "home"; render(); }
 function goToStep(step) { state.screen = "wizard"; state.step = step; render(); }
 function goResumo()     { state.screen = "resumo"; if (!state.resumoMes) state.resumoMes = mesAtualLabel(); render(); }
 function goRecentes()   { state.screen = "recentes"; render(); }
+function goConfig()     { state.screen = "config"; render(); }
 
 function updateProgress() {
   const isWizard = state.screen === "wizard" && state.step >= 1 && state.step <= TOTAL_STEPS;
@@ -315,6 +320,7 @@ function render() {
   if (state.screen === "home")      return renderHome();
   if (state.screen === "resumo")    return renderResumo();
   if (state.screen === "recentes")  return renderRecentes();
+  if (state.screen === "config")    return renderConfig();
   switch (state.step) {
     case 1: renderQuem(); break;
     case 2: renderBloco(); break;
@@ -371,6 +377,9 @@ function renderHome() {
   const el = screenEl(`
     <p class="screen-sub" style="margin-top:2px;">O que você quer fazer?</p>
     <div class="tile-grid" id="homeGrid" style="grid-template-columns: 1fr; gap: 14px; margin-top: 6px;"></div>
+    <div class="tile-config">
+      <button class="btn-config" id="btnConfig" aria-label="Gerenciar categorias">⚙️</button>
+    </div>
   `);
   const grid = el.querySelector("#homeGrid");
   const mk = (classe, titulo, hint, onClick) => {
@@ -384,6 +393,8 @@ function renderHome() {
   mk("tile-variavel", "📊 Ver resumo do mês", "Consultar totais por categoria", () => goResumo());
   mk("tile-receita", "🕘 Últimos lançamentos", "Ver, editar, marcar como pago ou excluir", () => goRecentes());
   mk("tile-backup", "💾 Fazer backup agora", "Salvar uma cópia da planilha no Drive", () => fazerBackupAgora());
+
+  el.querySelector("#btnConfig").addEventListener("click", () => goConfig());
 }
 
 async function fazerBackupAgora() {
@@ -950,12 +961,6 @@ async function fetchRecentes(opts) {
 // ============================================================
 // EXPORT CSV
 // ============================================================
-
-/**
- * Escapa um campo pra CSV no padrão que abre bem no Excel BR.
- * - Se contém ; " \n, envolve em aspas duplas
- * - Aspas duplas dentro do campo são duplicadas
- */
 function csvEscapar(valor) {
   const s = String(valor == null ? "" : valor);
   if (s.indexOf(";") === -1 && s.indexOf('"') === -1 && s.indexOf("\n") === -1 && s.indexOf("\r") === -1) {
@@ -964,10 +969,6 @@ function csvEscapar(valor) {
   return '"' + s.replace(/"/g, '""') + '"';
 }
 
-/**
- * Converte "Setembro de 2026" em "setembro-2026" (para nome do arquivo).
- * Remove acentos.
- */
 function mesParaNomeArquivo(mesLabel) {
   return String(mesLabel || "")
     .toLowerCase()
@@ -978,10 +979,6 @@ function mesParaNomeArquivo(mesLabel) {
     .replace(/[^a-z0-9\-]/g, "");
 }
 
-/**
- * Gera o conteúdo CSV a partir de uma lista de itens (mesmo formato
- * do fetchRecentes).
- */
 function gerarCsv(itens) {
   const cabecalho = "Data;Hora;Quem;Bloco;Categoria;Parcela;Valor;Pago;Observacao";
   const linhas = itens.map((it) => {
@@ -1002,17 +999,9 @@ function gerarCsv(itens) {
       csvEscapar(it.observacao || ""),
     ].join(";");
   });
-  // BOM UTF-8 no início pra Excel reconhecer acentuação
   return "\uFEFF" + [cabecalho].concat(linhas).join("\r\n");
 }
 
-/**
- * Exporta o mês selecionado no Resumo.
- * 1. Busca até 100 lançamentos daquele mês
- * 2. Gera CSV
- * 3. Tenta compartilhar via navigator.share (iPhone/Android moderno)
- * 4. Se não suportar, cai pra download tradicional
- */
 async function exportarMesCsv(botao) {
   const mesLabel = state.resumoMes;
   if (!mesLabel) {
@@ -1025,7 +1014,6 @@ async function exportarMesCsv(botao) {
   botao.innerHTML = `<span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span> Gerando...`;
 
   try {
-    // Busca os lançamentos do mês (limite 100 — suficiente pra uso do casal)
     const itens = await fetchRecentes({ limite: 100, mes: mesLabel });
 
     if (!itens || itens.length === 0) {
@@ -1035,7 +1023,6 @@ async function exportarMesCsv(botao) {
       return;
     }
 
-    // Ordena por data + hora (mais antigo primeiro, cronológico)
     itens.sort((a, b) => {
       const da = a.dataISO + " " + (a.hora || "");
       const db = b.dataISO + " " + (b.hora || "");
@@ -1047,7 +1034,6 @@ async function exportarMesCsv(botao) {
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const arquivo = new File([blob], nomeArquivo, { type: "text/csv" });
 
-    // Compartilhamento nativo (iOS/Android moderno)
     if (navigator.canShare && navigator.canShare({ files: [arquivo] })) {
       try {
         await navigator.share({
@@ -1059,17 +1045,14 @@ async function exportarMesCsv(botao) {
         botao.innerHTML = textoOriginal;
         return;
       } catch (err) {
-        // Se o usuário cancelou (AbortError), não cai no download
         if (err && err.name === "AbortError") {
           botao.disabled = false;
           botao.innerHTML = textoOriginal;
           return;
         }
-        // Outros erros: cai pro download tradicional abaixo
       }
     }
 
-    // Fallback: download tradicional
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1199,7 +1182,6 @@ function gerarHtmlResumoResultado(d) {
 
   html += gerarHtmlGrafico(d);
 
-  // Botão de exportar (no final de tudo)
   html += `
     <div style="margin-top:26px; display:flex; justify-content:center;">
       <button class="btn-mini" id="btnExportarCsv" style="padding:12px 20px;">
@@ -1381,6 +1363,266 @@ function ativarInteracaoGrafico() {
     it.addEventListener("touchstart", (e) => { e.preventDefault(); destacar(idx); }, { passive: false });
     it.addEventListener("touchend", limparDestaque);
   });
+}
+
+// ============================================================
+// CONFIG — Gerenciar Categorias
+// ============================================================
+function renderConfig() {
+  const el = screenEl(`
+    <h2 class="screen-title">Gerenciar Categorias</h2>
+    <p class="screen-sub">Adicione, renomeie ou exclua categorias. As mudanças valem para os próximos lançamentos e atualizam os antigos quando você renomeia.</p>
+    <div id="configConteudo"></div>
+  `);
+
+  carregarConfigCategorias(el.querySelector("#configConteudo"));
+  instalarBotaoTopo();
+}
+
+async function carregarConfigCategorias(container) {
+  container.innerHTML = `<div class="config-loading">Carregando categorias...</div>`;
+
+  try {
+    if (SCRIPT_URL.includes("COLE_AQUI")) throw new Error("O app ainda não foi conectado à planilha.");
+    // Força recarregar do servidor
+    await carregarCategorias(true);
+
+    if (!CATEGORIAS_REMOTAS) {
+      container.innerHTML = `<div class="error-banner">Não foi possível carregar as categorias.</div>`;
+      return;
+    }
+
+    const grupos = BLOCOS.map((bloco) => {
+      const cats = (CATEGORIAS_REMOTAS[bloco.id] || []).slice().sort((a, b) => a.localeCompare(b, "pt-BR"));
+      return { bloco, cats };
+    });
+
+    let html = "";
+    grupos.forEach(({ bloco, cats }) => {
+      const cor = CORES_BLOCO[bloco.id] || CORES_BLOCO["Outro"];
+      html += `
+        <div class="config-bloco">
+          <div class="config-bloco-titulo">
+            <span class="config-bloco-cor" style="background:${cor};"></span>
+            ${bloco.label}
+          </div>
+          <div id="config-bloco-${slugify(bloco.id)}">
+            ${cats.map((c) => linhaCategoriaHtml(bloco.id, c)).join("")}
+          </div>
+          <button class="config-add" data-acao="add" data-bloco="${escapeAttr(bloco.id)}">
+            + Adicionar categoria
+          </button>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+
+    // Liga os event listeners
+    container.querySelectorAll('[data-acao="renomear"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        modalRenomearCategoria(btn.dataset.bloco, btn.dataset.categoria, container);
+      });
+    });
+    container.querySelectorAll('[data-acao="excluir"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        modalExcluirCategoria(btn.dataset.bloco, btn.dataset.categoria, container);
+      });
+    });
+    container.querySelectorAll('[data-acao="add"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        modalCriarCategoria(btn.dataset.bloco, container);
+      });
+    });
+  } catch (err) {
+    container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
+  }
+}
+
+function linhaCategoriaHtml(bloco, categoria) {
+  return `
+    <div class="config-categoria">
+      <span class="config-categoria-nome">${escapeHtml(categoria)}</span>
+      <div class="config-categoria-acoes">
+        <button class="config-btn-acao" data-acao="renomear"
+                data-bloco="${escapeAttr(bloco)}" data-categoria="${escapeAttr(categoria)}"
+                aria-label="Renomear ${escapeAttr(categoria)}">✏️</button>
+        <button class="config-btn-acao excluir" data-acao="excluir"
+                data-bloco="${escapeAttr(bloco)}" data-categoria="${escapeAttr(categoria)}"
+                aria-label="Excluir ${escapeAttr(categoria)}">🗑️</button>
+      </div>
+    </div>
+  `;
+}
+
+function slugify(s) {
+  return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "-");
+}
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+// ---------- Modais ----------
+function modalCriarCategoria(bloco, containerAtualizar) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-sheet" role="dialog" aria-modal="true">
+      <h3 class="modal-titulo">Nova categoria</h3>
+      <p class="modal-sub">Em <strong>${escapeHtml(bloco)}</strong>.</p>
+      <p class="field-label">Nome da categoria</p>
+      <input type="text" class="text-input" id="modalInput" placeholder="Ex: Farmácia" autocomplete="off" />
+      <div id="modalErro" style="margin-top:12px;"></div>
+      <button class="btn-primary" id="modalSalvar" style="margin-top:16px;">Adicionar</button>
+      <button class="modal-cancelar" data-op="cancelar">Cancelar</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector("#modalInput");
+  const btn = overlay.querySelector("#modalSalvar");
+  const erro = overlay.querySelector("#modalErro");
+  setTimeout(() => input.focus(), 50);
+
+  function fechar() { overlay.remove(); }
+
+  async function salvar() {
+    const nome = input.value.trim();
+    if (!nome) { erro.innerHTML = `<div class="error-banner">Digite um nome.</div>`; return; }
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span> Salvando...`;
+    try {
+      const json = await fetch(SCRIPT_URL, {
+        method: "POST", headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ action: "categoriaCriar", bloco, categoria: nome }),
+      }).then((r) => r.json());
+      if (json.status !== "ok") throw new Error(json.message || "Falha ao criar.");
+      cacheInvalida();
+      fechar();
+      carregarConfigCategorias(containerAtualizar);
+    } catch (err) {
+      erro.innerHTML = `<div class="error-banner">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+      btn.innerHTML = "Adicionar";
+    }
+  }
+
+  btn.addEventListener("click", salvar);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") salvar(); });
+  overlay.querySelector('[data-op="cancelar"]').addEventListener("click", fechar);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+}
+
+function modalRenomearCategoria(bloco, categoriaAntiga, containerAtualizar) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-sheet" role="dialog" aria-modal="true">
+      <h3 class="modal-titulo">Renomear categoria</h3>
+      <p class="modal-sub">
+        Em <strong>${escapeHtml(bloco)}</strong>. Os lançamentos antigos com a categoria
+        "<strong>${escapeHtml(categoriaAntiga)}</strong>" também serão renomeados.
+      </p>
+      <p class="field-label">Novo nome</p>
+      <input type="text" class="text-input" id="modalInput" autocomplete="off" />
+      <div id="modalErro" style="margin-top:12px;"></div>
+      <button class="btn-primary" id="modalSalvar" style="margin-top:16px;">Renomear</button>
+      <button class="modal-cancelar" data-op="cancelar">Cancelar</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector("#modalInput");
+  const btn = overlay.querySelector("#modalSalvar");
+  const erro = overlay.querySelector("#modalErro");
+  input.value = categoriaAntiga;
+  setTimeout(() => { input.focus(); input.select(); }, 50);
+
+  function fechar() { overlay.remove(); }
+
+  async function salvar() {
+    const nome = input.value.trim();
+    if (!nome) { erro.innerHTML = `<div class="error-banner">Digite um nome.</div>`; return; }
+    if (nome === categoriaAntiga) { fechar(); return; }
+
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span> Renomeando... isso pode demorar um pouco. Aguarde com calma.`;
+
+    try {
+      const json = await fetch(SCRIPT_URL, {
+        method: "POST", headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({
+          action: "categoriaRenomear",
+          bloco,
+          categoriaAntiga,
+          categoriaNova: nome,
+        }),
+      }).then((r) => r.json());
+      if (json.status !== "ok") throw new Error(json.message || "Falha ao renomear.");
+      cacheInvalida();
+      fechar();
+      carregarConfigCategorias(containerAtualizar);
+    } catch (err) {
+      erro.innerHTML = `<div class="error-banner">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+      btn.innerHTML = "Renomear";
+    }
+  }
+
+  btn.addEventListener("click", salvar);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") salvar(); });
+  overlay.querySelector('[data-op="cancelar"]').addEventListener("click", fechar);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+}
+
+function modalExcluirCategoria(bloco, categoria, containerAtualizar) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-sheet" role="dialog" aria-modal="true">
+      <h3 class="modal-titulo">Excluir categoria</h3>
+      <p class="modal-sub">
+        Tem certeza que quer excluir <strong>${escapeHtml(categoria)}</strong> do bloco
+        <strong>${escapeHtml(bloco)}</strong>?
+      </p>
+      <div class="modal-aviso">
+        Se houver lançamentos com essa categoria, a exclusão será bloqueada. Nesse caso,
+        renomeie os lançamentos antes.
+      </div>
+      <div id="modalErro" style="margin-top:12px;"></div>
+      <button class="btn-primary" id="modalExcluir" style="margin-top:16px; background: var(--brick);">Excluir</button>
+      <button class="modal-cancelar" data-op="cancelar">Cancelar</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const btn = overlay.querySelector("#modalExcluir");
+  const erro = overlay.querySelector("#modalErro");
+
+  function fechar() { overlay.remove(); }
+
+  async function excluir() {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span> Excluindo...`;
+    try {
+      const json = await fetch(SCRIPT_URL, {
+        method: "POST", headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ action: "categoriaExcluir", bloco, categoria }),
+      }).then((r) => r.json());
+      if (json.status !== "ok") throw new Error(json.message || "Falha ao excluir.");
+      cacheInvalida();
+      fechar();
+      carregarConfigCategorias(containerAtualizar);
+    } catch (err) {
+      erro.innerHTML = `<div class="error-banner">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+      btn.innerHTML = "Excluir";
+    }
+  }
+
+  btn.addEventListener("click", excluir);
+  overlay.querySelector('[data-op="cancelar"]').addEventListener("click", fechar);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
 }
 
 // ============================================================
