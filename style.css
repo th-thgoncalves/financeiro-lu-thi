@@ -26,6 +26,13 @@
   /* Skeleton */
   --skeleton-base: #E5DCC6;
   --skeleton-shine: #EFE7D3;
+
+  /* Cores dos blocos (usadas no gráfico) */
+  --cor-fixa: #3D6B66;
+  --cor-variavel: #B98A3D;
+  --cor-cartao: #A9503D;
+  --cor-receita: #2C4E4A;
+  --cor-outros: #8C8274;
 }
 
 * { box-sizing: border-box; }
@@ -211,7 +218,7 @@ button {
   margin: 0 0 22px;
 }
 
-/* ---------- Tile grid (Quem / Bloco) ---------- */
+/* ---------- Tile grid ---------- */
 .tile-grid {
   display: grid;
   gap: 12px;
@@ -406,7 +413,7 @@ button {
   min-height: 44px;
 }
 
-/* ---------- Spinner (pro botão "Salvando...") ---------- */
+/* ---------- Spinner ---------- */
 .spinner {
   width: 16px;
   height: 16px;
@@ -921,8 +928,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 
 /* ============================================================
    SKELETON SCREENS
-   Caixas pulsantes no formato do conteúdo real, mostradas
-   enquanto os dados estão sendo carregados.
    ============================================================ */
 
 @keyframes skeleton-pulse {
@@ -940,7 +945,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   .skeleton { animation: none; opacity: 0.7; }
 }
 
-/* Skeleton em formato de cartão de lançamento */
 .skeleton-card {
   border: 1px solid var(--line);
   background: var(--paper-2);
@@ -959,7 +963,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 .skeleton-card .linha-3 { display: flex; gap: 8px; justify-content: flex-end; }
 .skeleton-card .linha-3 .skeleton.acao { width: 72px; height: 32px; border-radius: 999px; }
 
-/* Skeleton em formato de categoria (wizard) */
 .skeleton-cat {
   border: 1px solid var(--line);
   background: var(--paper-2);
@@ -970,7 +973,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 }
 .skeleton-cat .skeleton.cat-nome { width: 55%; height: 16px; }
 
-/* Skeleton em formato de resumo */
 .skeleton-resumo-topo {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1017,7 +1019,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 .skeleton-linha .skeleton.nome { width: 45%; height: 14px; }
 .skeleton-linha .skeleton.val { width: 22%; height: 14px; }
 
-/* Skeleton em formato de mês (wizard quando escolhe o mês — não usado hoje, mas fica pronto) */
 .skeleton-mes {
   border: 1px solid var(--line);
   background: var(--paper-2);
@@ -1029,3 +1030,192 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 }
 .skeleton-mes .skeleton.mes-nome { width: 50%; height: 14px; }
 .skeleton-mes .skeleton.mes-tag  { width: 60px; height: 11px; }
+
+/* ============================================================
+   GRÁFICO DE GASTOS
+   Pizza por Bloco + Barras horizontais por Categoria
+   ============================================================ */
+
+.grafico-secao {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.grafico-titulo {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.grafico-sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 18px;
+}
+
+/* --- Pizza / rosca por Bloco --- */
+.grafico-pizza-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.grafico-pizza {
+  position: relative;
+  width: 180px;
+  height: 180px;
+}
+
+.grafico-pizza svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.grafico-pizza .fatia {
+  fill: none;
+  stroke-width: 22;
+  transition: stroke-width 0.15s ease, opacity 0.15s ease;
+}
+
+.grafico-pizza .fatia.dim {
+  opacity: 0.35;
+}
+
+.grafico-pizza-centro {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  text-align: center;
+  padding: 40px;
+}
+
+.grafico-pizza-centro .label {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+  letter-spacing: 0.02em;
+}
+
+.grafico-pizza-centro .valor {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+/* Legenda da pizza */
+.grafico-legenda {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.grafico-legenda-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+
+.grafico-legenda-item.ativo {
+  background: var(--paper-2);
+}
+
+.grafico-legenda-cor {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.grafico-legenda-nome {
+  flex: 1;
+  color: var(--ink);
+}
+
+.grafico-legenda-valor {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.grafico-legenda-pct {
+  font-size: 11px;
+  color: var(--ink-soft);
+  min-width: 38px;
+  text-align: right;
+}
+
+/* --- Barras horizontais por Categoria --- */
+.grafico-barras {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.grafico-barra-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.grafico-barra-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.grafico-barra-topo .nome {
+  color: var(--ink);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 65%;
+}
+
+.grafico-barra-topo .valor {
+  color: var(--ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.grafico-barra-trilha {
+  width: 100%;
+  height: 10px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.grafico-barra-preenchida {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.grafico-vazio {
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  padding: 24px 0;
+  font-style: italic;
+}
