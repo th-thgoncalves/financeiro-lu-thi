@@ -24,9 +24,16 @@ const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
 
 const LIMITE_RECENTES = 30;
 const MESES_FUTUROS = 12;
-
-// Threshold do skeleton: só aparece se a requisição demorar mais que isso
 const SKELETON_DELAY_MS = 150;
+
+// Cores dos blocos no gráfico (precisam casar com o :root do style.css)
+const CORES_BLOCO = {
+  "Despesa Fixa":     "#3D6B66",
+  "Despesa Variável": "#B98A3D",
+  "Cartão":           "#A9503D",
+  "Receita":          "#2C4E4A",
+  "Outro":            "#8C8274",
+};
 
 // Cache em memória (Bloco C)
 const CACHE_TTL_MS = 30 * 1000;
@@ -122,21 +129,8 @@ function calcularParcelas(valorTotal, quantidade) {
 // ============================================================
 // SKELETON HELPERS
 // ============================================================
-
-/**
- * Orquestra o "delay threshold": só mostra o skeleton se o fetch
- * demorar mais que SKELETON_DELAY_MS. Se for mais rápido, o usuário
- * vê o conteúdo direto (sem piscada).
- *
- * @param {HTMLElement} container   onde o conteúdo vai morar
- * @param {Function}    htmlSkeleton  () => string de HTML do skeleton
- * @param {Function}    fetchFn       () => Promise que traz os dados
- * @param {Function}    renderFn      (dados) => string de HTML do conteúdo real
- */
 async function comSkeleton(container, htmlSkeleton, fetchFn, renderFn) {
-  let skeletonMostrado = false;
   const timer = setTimeout(() => {
-    skeletonMostrado = true;
     container.innerHTML = htmlSkeleton();
   }, SKELETON_DELAY_MS);
 
@@ -146,12 +140,10 @@ async function comSkeleton(container, htmlSkeleton, fetchFn, renderFn) {
     container.innerHTML = renderFn(dados);
   } catch (err) {
     clearTimeout(timer);
-    // Em caso de erro, mostra o erro independentemente do skeleton
     container.innerHTML = `<div class="error-banner">Não deu pra carregar: ${err.message}</div>`;
   }
 }
 
-/** Skeleton de um cartão de lançamento (usado na lista de Recentes) */
 function htmlSkeletonCartoes(n) {
   let html = "";
   for (let i = 0; i < (n || 5); i++) {
@@ -174,7 +166,6 @@ function htmlSkeletonCartoes(n) {
   return `<div class="cat-list">${html}</div>`;
 }
 
-/** Skeleton de botão de categoria (usado no wizard) */
 function htmlSkeletonCategorias(n) {
   let html = "";
   for (let i = 0; i < (n || 6); i++) {
@@ -183,7 +174,6 @@ function htmlSkeletonCategorias(n) {
   return `<div class="cat-list">${html}</div>`;
 }
 
-/** Skeleton completo da tela de Resumo */
 function htmlSkeletonResumo() {
   let linhas = "";
   for (let i = 0; i < 6; i++) {
@@ -444,9 +434,8 @@ function renderBloco() {
 }
 
 function renderCategoria() {
-  // Skeleton só se ainda não temos as categorias em memória
   if (!CATEGORIAS_REMOTAS && !SCRIPT_URL.includes("COLE_AQUI")) {
-    const el = screenEl(`
+    screenEl(`
       <h2 class="screen-title">Qual categoria?</h2>
       <p class="screen-sub">Bloco: <strong>${state.bloco}</strong></p>
       <div id="catSkeletonWrap">${htmlSkeletonCategorias(6)}</div>
@@ -924,7 +913,7 @@ function renderSucesso() {
 }
 
 // ============================================================
-// Fetch com cache (Bloco C)
+// Fetch com cache
 // ============================================================
 async function fetchResumo(mesLabel) {
   const chave = `resumo::${mesLabel}`;
@@ -984,7 +973,6 @@ function renderResumo() {
 }
 
 function carregarResumo(container, mesLabel) {
-  // Bloco novo: skeleton com delay threshold
   return comSkeleton(
     container,
     () => htmlSkeletonResumo(),
@@ -995,16 +983,12 @@ function carregarResumo(container, mesLabel) {
         return json;
       });
     },
-    (json) => {
-      // renderResumoResultado devolve string ao invés de escrever no DOM
-      return gerarHtmlResumoResultado(json);
-    }
+    (json) => gerarHtmlResumoResultado(json)
   );
 }
 
 /**
- * Versão "pura" de renderResumoResultado: devolve string em vez de
- * escrever no container. Necessária pro skeleton orquestrar a troca.
+ * Devolve o HTML do Resumo. Inclui o gráfico no final.
  */
 function gerarHtmlResumoResultado(d) {
   const saldoPos = d.saldo >= 0;
@@ -1065,7 +1049,211 @@ function gerarHtmlResumoResultado(d) {
     });
     html += `</div>`;
   }
+
+  // Gráfico
+  html += gerarHtmlGrafico(d);
+
   return html;
+}
+
+// ============================================================
+// GRÁFICO DE GASTOS
+// Pizza por Bloco + Barras por Categoria
+// ============================================================
+
+/**
+ * Gera a seção completa do gráfico: pizza + barras.
+ */
+function gerarHtmlGrafico(d) {
+  // Só considera SAÍDAS (despesas). Receita é mostrada separadamente no topo.
+  const linhas = (d.linhas || []).filter((l) => l.bloco !== "Receita");
+
+  if (linhas.length === 0) {
+    return `
+      <div class="grafico-secao">
+        <h3 class="grafico-titulo">Gastos por bloco</h3>
+        <p class="grafico-sub">Veja como o dinheiro foi distribuído no mês.</p>
+        <p class="grafico-vazio">Nenhum gasto registrado nesse mês.</p>
+      </div>
+    `;
+  }
+
+  // ---- Por bloco (pizza) ----
+  const porBloco = {};
+  linhas.forEach((l) => {
+    porBloco[l.bloco] = (porBloco[l.bloco] || 0) + (Number(l.valor) || 0);
+  });
+
+  const blocosOrdenados = Object.keys(porBloco)
+    .filter((b) => porBloco[b] > 0)
+    .sort((a, b) => porBloco[b] - porBloco[a]);
+
+  const totalGeral = blocosOrdenados.reduce((s, b) => s + porBloco[b], 0);
+
+  // ---- Por categoria (barras) ----
+  const porCategoria = {};
+  linhas.forEach((l) => {
+    const chave = l.categoria;
+    if (!porCategoria[chave]) {
+      porCategoria[chave] = { categoria: chave, bloco: l.bloco, valor: 0 };
+    }
+    porCategoria[chave].valor += Number(l.valor) || 0;
+  });
+
+  const categoriasOrdenadas = Object.values(porCategoria)
+    .sort((a, b) => b.valor - a.valor)
+    .slice(0, 8);
+
+  const maiorCategoria = categoriasOrdenadas.length > 0 ? categoriasOrdenadas[0].valor : 0;
+
+  return `
+    <div class="grafico-secao">
+      <h3 class="grafico-titulo">Gastos por bloco</h3>
+      <p class="grafico-sub">Como o dinheiro foi distribuído no mês.</p>
+
+      <div class="grafico-pizza-wrap">
+        ${gerarSvgPizza(porBloco, blocosOrdenados, totalGeral)}
+        <div class="grafico-legenda" id="graficoLegenda">
+          ${blocosOrdenados.map((bloco, i) => {
+            const valor = porBloco[bloco];
+            const pct = totalGeral > 0 ? Math.round((valor / totalGeral) * 100) : 0;
+            const cor = CORES_BLOCO[bloco] || CORES_BLOCO["Outro"];
+            return `
+              <div class="grafico-legenda-item" data-idx="${i}">
+                <span class="grafico-legenda-cor" style="background:${cor};"></span>
+                <span class="grafico-legenda-nome">${bloco}</span>
+                <span class="grafico-legenda-valor">R$ ${formatarMoeda(valor)}</span>
+                <span class="grafico-legenda-pct">${pct}%</span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+
+      <h3 class="grafico-titulo" style="margin-top:26px;">Onde mais gastou</h3>
+      <p class="grafico-sub">Top ${categoriasOrdenadas.length} categorias do mês.</p>
+      <div class="grafico-barras">
+        ${categoriasOrdenadas.map((c) => {
+          const pct = maiorCategoria > 0 ? (c.valor / maiorCategoria) * 100 : 0;
+          const cor = CORES_BLOCO[c.bloco] || CORES_BLOCO["Outro"];
+          return `
+            <div class="grafico-barra-item">
+              <div class="grafico-barra-topo">
+                <span class="nome">${c.categoria}</span>
+                <span class="valor">R$ ${formatarMoeda(c.valor)}</span>
+              </div>
+              <div class="grafico-barra-trilha">
+                <div class="grafico-barra-preenchida" style="width:${pct}%; background:${cor};"></div>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Gera o SVG da pizza/rosca por bloco.
+ *
+ * Técnica: cada fatia é um <circle> com stroke-dasharray calculado
+ * pra ocupar só a fração que lhe cabe, e stroke-dashoffset pra
+ * posicionar no ponto certo do círculo.
+ */
+function gerarSvgPizza(porBloco, blocosOrdenados, totalGeral) {
+  const RAIO = 42;
+  const PERIMETRO = 2 * Math.PI * RAIO; // ~263.89
+
+  let offsetAcumulado = 0;
+  let fatiasSvg = "";
+
+  blocosOrdenados.forEach((bloco, i) => {
+    const valor = porBloco[bloco];
+    const fracao = totalGeral > 0 ? valor / totalGeral : 0;
+    const comprimento = fracao * PERIMETRO;
+    const offset = -offsetAcumulado;
+    const cor = CORES_BLOCO[bloco] || CORES_BLOCO["Outro"];
+
+    // Pequeno gap visual entre fatias (só se tiver mais de uma fatia)
+    const gap = blocosOrdenados.length > 1 ? 1.5 : 0;
+    const comprimentoVisivel = Math.max(0, comprimento - gap);
+
+    fatiasSvg += `
+      <circle class="fatia" data-idx="${i}"
+        cx="60" cy="60" r="${RAIO}"
+        stroke="${cor}"
+        stroke-dasharray="${comprimentoVisivel} ${PERIMETRO - comprimentoVisivel}"
+        stroke-dashoffset="${offset}"
+      />
+    `;
+
+    offsetAcumulado += comprimento;
+  });
+
+  // Total exibido no centro
+  return `
+    <div class="grafico-pizza">
+      <svg viewBox="0 0 120 120" aria-label="Gráfico de gastos por bloco">
+        <!-- Círculo de fundo (linha) pra quando sobrar espaço -->
+        <circle cx="60" cy="60" r="${RAIO}" fill="none" stroke="var(--line)" stroke-width="22" />
+        ${fatiasSvg}
+      </svg>
+      <div class="grafico-pizza-centro">
+        <div class="label">Total gasto</div>
+        <div class="valor">R$ ${formatarMoeda(totalGeral)}</div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Ativa os eventos de hover/touch na pizza: quando o usuário passa
+ * o dedo (ou o mouse) numa fatia ou num item da legenda, as outras
+ * ficam esmaecidas.
+ *
+ * Chamado pelo app após a tela de Resumo ser montada.
+ */
+function ativarInteracaoGrafico() {
+  const legenda = document.getElementById("graficoLegenda");
+  if (!legenda) return;
+
+  const pizza = document.querySelector(".grafico-pizza");
+  if (!pizza) return;
+
+  const fatias = pizza.querySelectorAll(".fatia");
+  const itensLegenda = legenda.querySelectorAll(".grafico-legenda-item");
+
+  function destacar(idx) {
+    fatias.forEach((f) => {
+      f.classList.toggle("dim", Number(f.dataset.idx) !== idx);
+    });
+    itensLegenda.forEach((it) => {
+      it.classList.toggle("ativo", Number(it.dataset.idx) === idx);
+    });
+  }
+
+  function limparDestaque() {
+    fatias.forEach((f) => f.classList.remove("dim"));
+    itensLegenda.forEach((it) => it.classList.remove("ativo"));
+  }
+
+  // Cada fatia
+  fatias.forEach((f) => {
+    const idx = Number(f.dataset.idx);
+    f.addEventListener("mouseenter", () => destacar(idx));
+    f.addEventListener("mouseleave", limparDestaque);
+    f.addEventListener("touchstart", (e) => { e.preventDefault(); destacar(idx); }, { passive: false });
+    f.addEventListener("touchend", limparDestaque);
+  });
+
+  // Cada item da legenda
+  itensLegenda.forEach((it) => {
+    const idx = Number(it.dataset.idx);
+    it.addEventListener("mouseenter", () => destacar(idx));
+    it.addEventListener("mouseleave", limparDestaque);
+    it.addEventListener("touchstart", (e) => { e.preventDefault(); destacar(idx); }, { passive: false });
+    it.addEventListener("touchend", limparDestaque);
+  });
 }
 
 // ============================================================
@@ -1124,7 +1312,6 @@ function renderRecentes() {
 }
 
 function carregarRecentes(container) {
-  // Bloco novo: skeleton com delay threshold
   return comSkeleton(
     container,
     () => htmlSkeletonCartoes(5),
@@ -1138,8 +1325,6 @@ function carregarRecentes(container) {
       if (itens.length === 0) {
         return `<p class="sem-resultado">Nenhum lançamento encontrado com esses filtros.</p>`;
       }
-      // Precisa construir com DOM pra poder adicionar os event listeners.
-      // Devolve um placeholder e usa um queueMicrotask pra popular depois.
       const wrap = document.createElement("div");
       wrap.className = "cat-list";
       itens.forEach((item) => wrap.appendChild(criarCartaoRecente(item, itens, container)));
@@ -1152,7 +1337,6 @@ function carregarRecentes(container) {
           container.appendChild(wrap);
         }
       });
-      // Devolve string vazia — o queueMicrotask popula o DOM de verdade
       return `<div class="cat-list"></div>`;
     }
   );
