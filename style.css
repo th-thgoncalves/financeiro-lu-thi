@@ -23,11 +23,9 @@
 
   --shadow-card: 0 1px 2px rgba(43, 36, 32, 0.06), 0 8px 24px rgba(43, 36, 32, 0.08);
 
-  /* Skeleton */
   --skeleton-base: #E5DCC6;
   --skeleton-shine: #EFE7D3;
 
-  /* Cores dos blocos (usadas no gráfico) */
   --cor-fixa: #3D6B66;
   --cor-variavel: #B98A3D;
   --cor-cartao: #A9503D;
@@ -1033,7 +1031,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
 
 /* ============================================================
    GRÁFICO DE GASTOS
-   Pizza por Bloco + Barras horizontais por Categoria
    ============================================================ */
 
 .grafico-secao {
@@ -1056,7 +1053,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   margin: 0 0 18px;
 }
 
-/* --- Pizza / rosca por Bloco --- */
 .grafico-pizza-wrap {
   display: flex;
   flex-direction: column;
@@ -1115,7 +1111,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   line-height: 1.2;
 }
 
-/* Legenda da pizza */
 .grafico-legenda {
   display: flex;
   flex-direction: column;
@@ -1162,7 +1157,6 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   text-align: right;
 }
 
-/* --- Barras horizontais por Categoria --- */
 .grafico-barras {
   display: flex;
   flex-direction: column;
@@ -1218,4 +1212,128 @@ input[type="search"].search-input::-webkit-search-cancel-button {
   font-size: 14px;
   padding: 24px 0;
   font-style: italic;
+}
+
+/* ============================================================
+   GERENCIAR CATEGORIAS
+   ============================================================ */
+
+/* Tile de engrenagem no fim da home — discreto e redondo */
+.tile-config {
+  display: flex;
+  justify-content: center;
+  margin-top: 26px;
+}
+
+.btn-config {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-soft);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.btn-config:active { transform: scale(0.94); }
+
+/* Cabeçalho de cada bloco na tela de gerenciar */
+.config-bloco {
+  margin-bottom: 24px;
+}
+
+.config-bloco-titulo {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-bloco-cor {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Linha de categoria na tela de gerenciar */
+.config-categoria {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 6px;
+}
+
+.config-categoria-nome {
+  flex: 1;
+  font-size: 15px;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.config-categoria-acoes {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.config-btn-acao {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-soft);
+}
+
+.config-btn-acao:active { background: var(--paper); }
+
+.config-btn-acao.excluir { color: var(--brick); }
+
+/* Botão de adicionar categoria */
+.config-add {
+  width: 100%;
+  border: 1px dashed var(--line);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--teal);
+  font-family: var(--font-body);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.config-add:active { background: var(--paper-2); }
+
+/* Estado de carregando dentro da tela de config */
+.config-loading {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--ink-soft);
+  font-size: 14px;
 }
