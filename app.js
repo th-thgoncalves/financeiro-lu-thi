@@ -26,7 +26,6 @@ const LIMITE_RECENTES = 30;
 const MESES_FUTUROS = 12;
 const SKELETON_DELAY_MS = 150;
 
-// Cores dos blocos no gráfico (precisam casar com o :root do style.css)
 const CORES_BLOCO = {
   "Despesa Fixa":     "#3D6B66",
   "Despesa Variável": "#B98A3D",
@@ -138,8 +137,6 @@ async function comSkeleton(container, htmlSkeleton, fetchFn, renderFn, aposRende
     const dados = await fetchFn();
     clearTimeout(timer);
     container.innerHTML = renderFn(dados);
-    // Callback opcional: roda depois que o HTML foi injetado.
-    // Útil pra ativar event listeners em elementos recém-criados.
     if (typeof aposRender === "function") {
       queueMicrotask(() => aposRender(dados));
     }
@@ -951,6 +948,147 @@ async function fetchRecentes(opts) {
 }
 
 // ============================================================
+// EXPORT CSV
+// ============================================================
+
+/**
+ * Escapa um campo pra CSV no padrão que abre bem no Excel BR.
+ * - Se contém ; " \n, envolve em aspas duplas
+ * - Aspas duplas dentro do campo são duplicadas
+ */
+function csvEscapar(valor) {
+  const s = String(valor == null ? "" : valor);
+  if (s.indexOf(";") === -1 && s.indexOf('"') === -1 && s.indexOf("\n") === -1 && s.indexOf("\r") === -1) {
+    return s;
+  }
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+/**
+ * Converte "Setembro de 2026" em "setembro-2026" (para nome do arquivo).
+ * Remove acentos.
+ */
+function mesParaNomeArquivo(mesLabel) {
+  return String(mesLabel || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+de\s+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9\-]/g, "");
+}
+
+/**
+ * Gera o conteúdo CSV a partir de uma lista de itens (mesmo formato
+ * do fetchRecentes).
+ */
+function gerarCsv(itens) {
+  const cabecalho = "Data;Hora;Quem;Bloco;Categoria;Parcela;Valor;Pago;Observacao";
+  const linhas = itens.map((it) => {
+    const valor = Number(it.valor || 0).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: false,
+    });
+    return [
+      csvEscapar(it.data),
+      csvEscapar(it.hora),
+      csvEscapar(it.quem),
+      csvEscapar(it.bloco),
+      csvEscapar(it.categoria),
+      csvEscapar(it.parcela || ""),
+      csvEscapar(valor),
+      csvEscapar(it.pago ? "Sim" : "Não"),
+      csvEscapar(it.observacao || ""),
+    ].join(";");
+  });
+  // BOM UTF-8 no início pra Excel reconhecer acentuação
+  return "\uFEFF" + [cabecalho].concat(linhas).join("\r\n");
+}
+
+/**
+ * Exporta o mês selecionado no Resumo.
+ * 1. Busca até 100 lançamentos daquele mês
+ * 2. Gera CSV
+ * 3. Tenta compartilhar via navigator.share (iPhone/Android moderno)
+ * 4. Se não suportar, cai pra download tradicional
+ */
+async function exportarMesCsv(botao) {
+  const mesLabel = state.resumoMes;
+  if (!mesLabel) {
+    alert("Escolha um mês primeiro.");
+    return;
+  }
+
+  const textoOriginal = botao.innerHTML;
+  botao.disabled = true;
+  botao.innerHTML = `<span class="spinner" style="border-color: rgba(43,36,32,0.15); border-top-color: var(--teal);"></span> Gerando...`;
+
+  try {
+    // Busca os lançamentos do mês (limite 100 — suficiente pra uso do casal)
+    const itens = await fetchRecentes({ limite: 100, mes: mesLabel });
+
+    if (!itens || itens.length === 0) {
+      alert(`Nenhum lançamento em ${mesLabel} para exportar.`);
+      botao.disabled = false;
+      botao.innerHTML = textoOriginal;
+      return;
+    }
+
+    // Ordena por data + hora (mais antigo primeiro, cronológico)
+    itens.sort((a, b) => {
+      const da = a.dataISO + " " + (a.hora || "");
+      const db = b.dataISO + " " + (b.hora || "");
+      return da.localeCompare(db);
+    });
+
+    const csv = gerarCsv(itens);
+    const nomeArquivo = `financeiro-lu-thi-${mesParaNomeArquivo(mesLabel)}.csv`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const arquivo = new File([blob], nomeArquivo, { type: "text/csv" });
+
+    // Compartilhamento nativo (iOS/Android moderno)
+    if (navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+      try {
+        await navigator.share({
+          files: [arquivo],
+          title: `Financeiro Lu & Thi — ${mesLabel}`,
+          text: `Lançamentos de ${mesLabel}`,
+        });
+        botao.disabled = false;
+        botao.innerHTML = textoOriginal;
+        return;
+      } catch (err) {
+        // Se o usuário cancelou (AbortError), não cai no download
+        if (err && err.name === "AbortError") {
+          botao.disabled = false;
+          botao.innerHTML = textoOriginal;
+          return;
+        }
+        // Outros erros: cai pro download tradicional abaixo
+      }
+    }
+
+    // Fallback: download tradicional
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nomeArquivo;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    botao.disabled = false;
+    botao.innerHTML = textoOriginal;
+  } catch (err) {
+    alert(`Não deu pra exportar: ${err.message}`);
+    botao.disabled = false;
+    botao.innerHTML = textoOriginal;
+  }
+}
+
+// ============================================================
 // Resumo
 // ============================================================
 function renderResumo() {
@@ -989,13 +1127,16 @@ function carregarResumo(container, mesLabel) {
       });
     },
     (json) => gerarHtmlResumoResultado(json),
-    () => ativarInteracaoGrafico()
+    () => {
+      ativarInteracaoGrafico();
+      const btnExport = document.getElementById("btnExportarCsv");
+      if (btnExport) {
+        btnExport.addEventListener("click", () => exportarMesCsv(btnExport));
+      }
+    }
   );
 }
 
-/**
- * Devolve o HTML do Resumo. Inclui o gráfico no final.
- */
 function gerarHtmlResumoResultado(d) {
   const saldoPos = d.saldo >= 0;
   const saldoRealPos = (d.saldoReal ?? d.saldo) >= 0;
@@ -1056,22 +1197,24 @@ function gerarHtmlResumoResultado(d) {
     html += `</div>`;
   }
 
-  // Gráfico
   html += gerarHtmlGrafico(d);
+
+  // Botão de exportar (no final de tudo)
+  html += `
+    <div style="margin-top:26px; display:flex; justify-content:center;">
+      <button class="btn-mini" id="btnExportarCsv" style="padding:12px 20px;">
+        📥 Exportar esse mês em CSV
+      </button>
+    </div>
+  `;
 
   return html;
 }
 
 // ============================================================
 // GRÁFICO DE GASTOS
-// Pizza por Bloco + Barras por Categoria
 // ============================================================
-
-/**
- * Gera a seção completa do gráfico: pizza + barras.
- */
 function gerarHtmlGrafico(d) {
-  // Só considera SAÍDAS (despesas). Receita é mostrada separadamente no topo.
   const linhas = (d.linhas || []).filter((l) => l.bloco !== "Receita");
 
   if (linhas.length === 0) {
@@ -1084,7 +1227,6 @@ function gerarHtmlGrafico(d) {
     `;
   }
 
-  // ---- Por bloco (pizza) ----
   const porBloco = {};
   linhas.forEach((l) => {
     porBloco[l.bloco] = (porBloco[l.bloco] || 0) + (Number(l.valor) || 0);
@@ -1096,7 +1238,6 @@ function gerarHtmlGrafico(d) {
 
   const totalGeral = blocosOrdenados.reduce((s, b) => s + porBloco[b], 0);
 
-  // ---- Por categoria (barras) ----
   const porCategoria = {};
   linhas.forEach((l) => {
     const chave = l.categoria;
@@ -1159,16 +1300,9 @@ function gerarHtmlGrafico(d) {
   `;
 }
 
-/**
- * Gera o SVG da pizza/rosca por bloco.
- *
- * Técnica: cada fatia é um <circle> com stroke-dasharray calculado
- * pra ocupar só a fração que lhe cabe, e stroke-dashoffset pra
- * posicionar no ponto certo do círculo.
- */
 function gerarSvgPizza(porBloco, blocosOrdenados, totalGeral) {
   const RAIO = 42;
-  const PERIMETRO = 2 * Math.PI * RAIO; // ~263.89
+  const PERIMETRO = 2 * Math.PI * RAIO;
 
   let offsetAcumulado = 0;
   let fatiasSvg = "";
@@ -1179,8 +1313,6 @@ function gerarSvgPizza(porBloco, blocosOrdenados, totalGeral) {
     const comprimento = fracao * PERIMETRO;
     const offset = -offsetAcumulado;
     const cor = CORES_BLOCO[bloco] || CORES_BLOCO["Outro"];
-
-    // Pequeno gap visual entre fatias (só se tiver mais de uma fatia)
     const gap = blocosOrdenados.length > 1 ? 1.5 : 0;
     const comprimentoVisivel = Math.max(0, comprimento - gap);
 
@@ -1196,11 +1328,9 @@ function gerarSvgPizza(porBloco, blocosOrdenados, totalGeral) {
     offsetAcumulado += comprimento;
   });
 
-  // Total exibido no centro
   return `
     <div class="grafico-pizza">
       <svg viewBox="0 0 120 120" aria-label="Gráfico de gastos por bloco">
-        <!-- Círculo de fundo (linha) pra quando sobrar espaço -->
         <circle cx="60" cy="60" r="${RAIO}" fill="none" stroke="var(--line)" stroke-width="22" />
         ${fatiasSvg}
       </svg>
@@ -1212,13 +1342,6 @@ function gerarSvgPizza(porBloco, blocosOrdenados, totalGeral) {
   `;
 }
 
-/**
- * Ativa os eventos de hover/touch na pizza: quando o usuário passa
- * o dedo (ou o mouse) numa fatia ou num item da legenda, as outras
- * ficam esmaecidas.
- *
- * Chamado pelo app após a tela de Resumo ser montada.
- */
 function ativarInteracaoGrafico() {
   const legenda = document.getElementById("graficoLegenda");
   if (!legenda) return;
@@ -1243,7 +1366,6 @@ function ativarInteracaoGrafico() {
     itensLegenda.forEach((it) => it.classList.remove("ativo"));
   }
 
-  // Cada fatia
   fatias.forEach((f) => {
     const idx = Number(f.dataset.idx);
     f.addEventListener("mouseenter", () => destacar(idx));
@@ -1252,7 +1374,6 @@ function ativarInteracaoGrafico() {
     f.addEventListener("touchend", limparDestaque);
   });
 
-  // Cada item da legenda
   itensLegenda.forEach((it) => {
     const idx = Number(it.dataset.idx);
     it.addEventListener("mouseenter", () => destacar(idx));
