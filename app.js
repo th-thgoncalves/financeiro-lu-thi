@@ -988,7 +988,8 @@ function carregarResumo(container, mesLabel) {
         return json;
       });
     },
-    (json) => gerarHtmlResumoResultado(json)
+    (json) => gerarHtmlResumoResultado(json),
+    () => ativarInteracaoGrafico()
   );
 }
 
